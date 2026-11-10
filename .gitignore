@@ -1,0 +1,22 @@
+# Dependencies and build output (rebuilt by npm install / npm run build)
+node_modules/
+dist/
+.update-backup/
+
+# Everything Mediarr stores at run time: the database (API keys, users), secret key, caches, logs.
+# Never commit it.
+data/
+*.db
+*.db-shm
+*.db-wal
+secret.key
+setup-code.txt
+.env
+.env.*
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
