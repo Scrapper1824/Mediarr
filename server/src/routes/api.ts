@@ -38,6 +38,7 @@ import { identifyFolder, scanLibrary, scanStatus } from '../core/scanner.js';
 import { queueMediaWork } from '../playback/jobs.js';
 import { beginInstall, checkForUpdate, updateInfo } from '../system/updater.js';
 import { ffmpegInfo } from '../playback/ffmpeg.js';
+import { testGpu } from '../playback/gpuTest.js';
 
 const MASK = '********';
 
@@ -119,6 +120,9 @@ export async function apiRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/system/monitor', async () => runMonitor());
+
+  // Settings → Playback → Test graphics card (admins only).
+  app.post('/api/system/gpu-test', async () => testGpu());
 
   // "Start when I log in to Windows" (admin-only like everything not opened to users in security.ts).
   // Library scan: titles already in the library folders (admins only).

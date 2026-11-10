@@ -740,3 +740,14 @@ select.input { cursor: pointer; }
 .identify-results li { display: flex; align-items: center; gap: 12px; padding: 6px; border-radius: 10px; background: var(--bg-2); }
 .identify-results img, .identify-noposter { width: 46px; height: 69px; object-fit: cover; border-radius: 6px; flex: none; background: var(--panel-2); }
 .identify-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+/* Settings → Playback → Test graphics card */
+.gpu-test { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.gpu-verdict { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; font-size: 14px; border: 1px solid var(--line); }
+.gpu-verdict.ok { border-color: color-mix(in srgb, var(--ok) 50%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.gpu-verdict.bad { border-color: color-mix(in srgb, var(--danger) 50%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.gpu-facts { display: grid; gap: 4px; margin: 0; font-size: 13px; }
+.gpu-fact { display: grid; grid-template-columns: 160px 1fr; gap: 12px; }
+.gpu-fact dt { color: var(--muted); }
+.gpu-fact dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .gpu-fact { grid-template-columns: 1fr; gap: 0; } }

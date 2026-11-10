@@ -8,6 +8,7 @@ import UsersPanel from '../components/UsersPanel';
 import SystemPanel from '../components/SystemPanel';
 import FolderList, { type FolderSpace } from '../components/FolderList';
 import LibraryScanPanel from '../components/LibraryScanPanel';
+import GpuTestPanel from '../components/GpuTestPanel';
 import { useIsAdmin } from '../components/AuthGate';
 import UpdateDialog, { useUpdateInfo, type UpdateInfo } from '../components/UpdateDialog';
 
@@ -407,6 +408,7 @@ function AdminSettings() {
                   </select>
                 </Field>
               </section>
+              <GpuTestPanel />
               <section className="panel">
                 <h3>Streaming</h3>
                 <div className="two">
