@@ -67,13 +67,16 @@ function progressOf(userId: number, mediaId: number, episodeId: number) {
     | undefined) ?? { position: 0, duration: 0, watched: 0 };
 }
 
-/** The next episode with a file, after this one. */
-function nextEpisode(p: Playable): EpisodeRow | null {
+/** The episode with a file just after (step 1) or before (step -1) this one; specials are skipped. */
+function episodeAround(p: Playable, step: 1 | -1): EpisodeRow | null {
   if (!p.episode) return null;
   const eps = getEpisodes(p.media.id).filter((e) => e.has_file && e.file_path && e.season > 0);
   const i = eps.findIndex((e) => e.id === p.episode!.id);
-  return i >= 0 ? (eps[i + 1] ?? null) : null;
+  return i >= 0 ? (eps[i + step] ?? null) : null;
 }
+const nextEpisode = (p: Playable) => episodeAround(p, 1);
+const episodeLink = (e: EpisodeRow | null) =>
+  e ? { kind: 'episode' as const, id: e.id, label: `S${String(e.season).padStart(2, '0')}E${String(e.episode).padStart(2, '0')}${e.title ? ` · ${e.title}` : ''}` } : null;
 
 const CONTENT_TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm' };
 
@@ -127,7 +130,8 @@ export async function playRoutes(app: FastifyInstance) {
       trickplay: getSettings().trickplay ? trickplayManifest(p.file) : null,
       pending: workPending(p.file, p.media.id, p.episode?.season ?? null),
       position: progress.watched ? 0 : progress.position,
-      next: next ? { kind: 'episode', id: next.id, label: `S${String(next.season).padStart(2, '0')}E${String(next.episode).padStart(2, '0')}${next.title ? ` · ${next.title}` : ''}` } : null,
+      next: episodeLink(next),
+      prev: episodeLink(episodeAround(p, -1)),
       remote: !isLocalAddress(req.ip),
     };
   });

@@ -33,6 +33,7 @@ interface PlayInfo {
   pending: { trickplay: boolean; segments: boolean };
   position: number;
   next: { kind: 'episode'; id: number; label: string } | null;
+  prev: { kind: 'episode'; id: number; label: string } | null;
   remote: boolean;
 }
 type Segments = Partial<Record<'intro' | 'credits', { start: number; end: number }>>;
@@ -362,11 +363,13 @@ function Player({ info }: { info: PlayInfo }) {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
     else shell.current?.requestFullscreen().catch(() => undefined);
   };
-  const goNext = () => {
-    if (!info.next) return;
+  const goTo = (to: PlayInfo['next']) => {
+    if (!to) return;
     saveProgress();
-    navigate(`/watch/${info.next.kind}/${info.next.id}`, { replace: true });
+    navigate(`/watch/${to.kind}/${to.id}`, { replace: true });
   };
+  const goNext = () => goTo(info.next);
+  const goPrev = () => goTo(info.prev);
 
   const poke = () => {
     setControls(true);
@@ -386,6 +389,8 @@ function Player({ info }: { info: PlayInfo }) {
       else if (e.key === 'ArrowLeft') seek(v.currentTime - 10);
       else if (e.key === 'f') fullscreen();
       else if (e.key === 'm') v.muted = !v.muted;
+      else if (e.key === 'N' && e.shiftKey) goNext();
+      else if (e.key === 'P' && e.shiftKey) goPrev();
       else if (e.key === 'Escape' && menu) setMenu(null);
       else return;
       e.preventDefault();
@@ -669,9 +674,19 @@ function Player({ info }: { info: PlayInfo }) {
           />
         </div>
         <div className="watch-bar">
+          {info.kind === 'episode' && (
+            <button className="watch-icon" aria-label="Previous episode" title={info.prev ? `Previous: ${info.prev.label} (Shift+P)` : 'No previous episode'} disabled={!info.prev} onClick={goPrev}>
+              ⏮
+            </button>
+          )}
           <button className="watch-icon" aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlay}>
             {playing ? '❚❚' : '▶'}
           </button>
+          {info.kind === 'episode' && (
+            <button className="watch-icon" aria-label="Next episode" title={info.next ? `Next: ${info.next.label} (Shift+N)` : 'No next episode'} disabled={!info.next} onClick={goNext}>
+              ⏭
+            </button>
+          )}
           <button className="watch-icon" aria-label="Back 10 seconds" onClick={() => seek(currentTime() - 10)}>
             ↺10
           </button>

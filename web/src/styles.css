@@ -573,7 +573,8 @@ select.input { cursor: pointer; }
 .watch-seek input { position: relative; width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; background: transparent; }
 .watch-bar { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .watch-icon { background: none; border: none; color: #fff; font: inherit; font-size: 17px; min-width: 40px; height: 40px; border-radius: 8px; cursor: pointer; }
-.watch-icon:hover { background: rgba(255,255,255,0.12); }
+.watch-icon:disabled { opacity: 0.35; cursor: default; }
+.watch-icon:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
 .watch-icon:focus-visible { outline: 2px solid var(--accent); }
 .watch-volume { width: 90px; accent-color: #fff; }
 .watch-time { font-size: 13px; font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.85); margin-left: 6px; white-space: nowrap; }

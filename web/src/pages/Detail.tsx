@@ -43,6 +43,26 @@ function EpisodeStatus({ e }: { e: Episode }) {
   return <span className={`badge ${e.monitored ? 'warn' : 'muted'}`}>Missing</span>;
 }
 
+type Progress = Record<string, { position: number; duration: number; watched: boolean }>;
+
+/**
+ * Which episode Play starts: the one you're partway through, else the one after the last you
+ * watched, else the first. Only episodes with a file; specials (season 0) are skipped.
+ */
+export function nextToWatch(episodes: Episode[], progress: Progress): { ep: Episode; resume: boolean } | null {
+  const eps = episodes.filter((e) => e.has_file && e.season > 0).sort((a, b) => a.season - b.season || a.episode - b.episode);
+  if (!eps.length) return null;
+  let last = -1;
+  eps.forEach((e, i) => {
+    const p = progress[e.id];
+    if (p && (p.watched || p.position > 0)) last = i;
+  });
+  if (last < 0) return { ep: eps[0], resume: false };
+  const p = progress[eps[last].id];
+  if (!p.watched) return { ep: eps[last], resume: true };
+  return { ep: eps[last + 1] ?? eps[0], resume: false };
+}
+
 export default function Detail() {
   const id = Number(useParams().id);
   const qc = useQueryClient();
@@ -125,6 +145,7 @@ export default function Detail() {
   const m = q.data;
   const searching = search.isPending || m.search.running;
 
+  const upNext = nextToWatch(m.episodes, watched.data ?? {});
   const seasonInfo = (n: number) => m.anime_seasons?.find((x) => x.season === n);
   const seasons = [...new Set(m.episodes.map((e) => e.season))].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b));
   const isOpen = (s: number) => open.has(s) || (seasons.length === 1 && !open.has(-s - 1));
@@ -189,7 +210,12 @@ export default function Detail() {
                 ▶ {watched.data?.['0']?.position && !watched.data['0'].watched ? 'Resume' : 'Play'}
               </Link>
             )}
-            <button className={`btn${m.type === 'movie' && m.file_path ? '' : ' primary'}`} disabled={searching} onClick={() => search.mutate({})}>
+            {upNext && (
+              <Link className="btn primary play-btn" to={`/watch/episode/${upNext.ep.id}`} title={upNext.ep.title ?? undefined}>
+                ▶ {upNext.resume ? 'Resume' : 'Play'} {m.episodes.some((e) => e.season > 1) || upNext.ep.season !== 1 ? `S${upNext.ep.season} ` : ''}E{upNext.ep.episode}
+              </Link>
+            )}
+            <button className={`btn${(m.type === 'movie' && m.file_path) || upNext ? '' : ' primary'}`} disabled={searching} onClick={() => search.mutate({})}>
               {searching && <Spinner />}
               {searching ? 'Searching…' : m.type === 'movie' ? 'Search' : 'Search missing'}
             </button>
