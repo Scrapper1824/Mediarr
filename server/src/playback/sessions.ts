@@ -43,6 +43,17 @@ const IDLE_MS = 60_000;
 let launcher: (file: string, args: string[], s: Session, segment: number) => ChildProcess = (file, args) => start(file, args);
 export const useLauncher = (fn: typeof launcher) => (launcher = fn);
 
+/**
+ * When a graphics-card encoder last failed. For a while after, new streams use the CPU straight away.
+ * Typical cause: a Windows server whose Remote Desktop window was closed, which takes the GPU away from the session.
+ */
+let gpuFailedAt = 0;
+const GPU_RETRY_MS = 10 * 60_000;
+export const resetGpuFallback = () => (gpuFailedAt = 0);
+/** True while transcodes are on the CPU because the graphics card stopped working. */
+export const gpuFallbackActive = () => gpuFailedAt > 0 && Date.now() - gpuFailedAt < GPU_RETRY_MS;
+const usable = (e: Encoder): Encoder => (e !== 'libx264' && gpuFallbackActive() ? 'libx264' : e);
+
 const segPath = (s: Session, n: number) => path.join(s.dir, `seg${n}.ts`);
 const running = () => [...sessions.values()].filter((s) => s.proc).length;
 
@@ -65,7 +76,18 @@ function launch(s: Session, segment: number) {
   proc.on('close', (code) => {
     if (s.proc !== proc) return;
     s.proc = null;
-    if (code !== 0) s.error = stderr.trim().split('\n').pop() || `FFmpeg stopped (code ${code})`;
+    if (code === 0) return;
+    const reason = stderr.trim().split('\n').pop() || `FFmpeg stopped (code ${code})`;
+    if (s.encoder !== 'libx264') {
+      // The graphics card failed: carry on from where it stopped, on the CPU.
+      gpuFailedAt = Date.now();
+      console.warn(`[playback] ${s.encoder} failed (${reason}); converting on the CPU instead`);
+      s.encoder = 'libx264';
+      advance(s);
+      launch(s, Math.min(s.next, segmentCount(s.probe.duration) - 1));
+      return;
+    }
+    s.error = reason;
   });
   proc.on('error', (err) => {
     if (s.proc === proc) {
@@ -110,7 +132,7 @@ export function createSession(n: NewSession): Session {
     file: n.file,
     probe: n.probe,
     decision: n.decision,
-    encoder: n.encoder,
+    encoder: usable(n.encoder),
     encoderPath: n.ffmpeg,
     dir,
     proc: null,

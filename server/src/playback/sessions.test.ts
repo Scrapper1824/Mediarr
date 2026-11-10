@@ -8,7 +8,7 @@ import { saveSettings } from '../settings.js';
 import type { Decision } from './decide.js';
 import { usePlaybackDataDir } from './ffmpeg.js';
 import type { MediaProbe } from './probe.js';
-import { activeSessions, createSession, getSession, startPlayback, stopPlayback, sweep, useLauncher, waitForSegment } from './sessions.js';
+import { activeSessions, createSession, gpuFallbackActive, resetGpuFallback, getSession, startPlayback, stopPlayback, sweep, useLauncher, waitForSegment } from './sessions.js';
 
 let tmp: string;
 let launches: number[];
@@ -52,6 +52,7 @@ beforeEach(() => {
   usePlaybackDataDir(tmp);
   saveSettings({ maxTranscodes: 2 });
   startPlayback();
+  resetGpuFallback();
   launches = [];
   useLauncher((_file, _args, s, segment) => {
     launches.push(segment);
@@ -64,6 +65,36 @@ afterEach(() => {
 });
 
 describe('streaming sessions', () => {
+  const fail = (msg: string) => spawn(process.execPath, ['-e', `console.error(${JSON.stringify(msg)}); process.exit(1)`], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const gpuSession = (userId: number, startAt: number) =>
+    createSession({ userId, title: `episode:${userId}`, file: 'C:\\lib\\ep.mkv', ffmpeg: 'ffmpeg', probe, decision, encoder: 'h264_amf', startAt });
+
+  it('switches to the CPU when the graphics card encoder fails, and keeps using it for new streams', async () => {
+    const used: string[] = [];
+    useLauncher((_file, args, s, segment) => {
+      const enc = args[args.indexOf('-c:v') + 1];
+      used.push(`${enc}@${segment}`);
+      // The GPU encoder dies at once (as AMF does once Remote Desktop is closed); the CPU one works.
+      if (enc !== 'libx264') return fail('Failed to initialize AMF');
+      return spawn(process.execPath, ['-e', FAKE, s.dir, String(segment), '360'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    });
+    const s = gpuSession(1, 600);
+    expect(await waitForSegment(s, 150)).toBe(path.join(s.dir, 'seg150.ts'));
+    expect(used).toEqual(['h264_amf@150', 'libx264@150']);
+    expect(s.encoder).toBe('libx264');
+    expect(gpuFallbackActive()).toBe(true);
+    // The next stream doesn't try the graphics card again for a while.
+    const s2 = gpuSession(2, 0);
+    expect(s2.encoder).toBe('libx264');
+    await waitForSegment(s2, 0);
+  }, 20_000);
+
+  it('reports a failure that the CPU can’t get past either', async () => {
+    useLauncher(() => fail('Invalid data found when processing input'));
+    const s = gpuSession(1, 0);
+    await expect(waitForSegment(s, 0, 5000)).rejects.toThrow(/Converting failed: Invalid data/);
+  }, 20_000);
+
   it('serves segments as they are made, and restarts the encoder when you jump ahead', async () => {
     const s = session(1);
     expect(fs.readFileSync(path.join(s.dir, 'main.m3u8'), 'utf8')).toContain('seg359.ts');

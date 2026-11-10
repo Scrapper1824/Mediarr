@@ -194,7 +194,7 @@ describe('cross-site protection and headers', () => {
       payload: { username: 'jacob', password: PASSWORD },
     });
     expect(res.statusCode).toBe(429);
-  });
+  }, 30_000); // 13 deliberately slow password checks
 });
 
 describe('two-factor', () => {
