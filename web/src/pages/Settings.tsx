@@ -7,6 +7,7 @@ import WatchlistLinksPanel from '../components/WatchlistLinksPanel';
 import UsersPanel from '../components/UsersPanel';
 import SystemPanel from '../components/SystemPanel';
 import FolderList, { type FolderSpace } from '../components/FolderList';
+import LibraryScanPanel from '../components/LibraryScanPanel';
 import { useIsAdmin } from '../components/AuthGate';
 import UpdateDialog, { useUpdateInfo, type UpdateInfo } from '../components/UpdateDialog';
 
@@ -205,6 +206,8 @@ function AdminSettings() {
           ))}
         </nav>
 
+        <div className="settings-content">
+        {/* Only settings fields are in this form; panels with their own forms (users, password…) come after it. */}
         <form
           className="settings-content"
           onSubmit={(e) => {
@@ -256,6 +259,7 @@ function AdminSettings() {
           )}
 
           {section === 'library' && (
+            <>
             <section className="panel">
               <p className="muted small">
                 qBittorrent downloads straight into these folders, then Mediarr renames the result. Use paths as qBittorrent sees them. With more than
@@ -283,6 +287,8 @@ function AdminSettings() {
                 {num('minFreeSpaceGb', { min: 0 })}
               </Field>
             </section>
+            <LibraryScanPanel hours={form.libraryScanHours} setHours={(h) => setForm({ ...form, libraryScanHours: h })} />
+            </>
           )}
 
           {section === 'connections' && (
@@ -448,22 +454,10 @@ function AdminSettings() {
                   {text('anilistClientId', { autoComplete: 'off', spellCheck: false, inputMode: 'numeric' })}
                 </Field>
               </section>
-              {dirty ? (
-                <p className="muted small">Save your changes to connect your own accounts.</p>
-              ) : (
-                <WatchlistLinksPanel />
-              )}
             </>
           )}
 
-          {section === 'users' && <UsersPanel />}
-          {section === 'system' && (
-            <>
-              <UpdatesPanel form={form} setForm={setForm} />
-              <SystemPanel />
-            </>
-          )}
-          {section === 'account' && <SecurityPanel />}
+          {section === 'system' && <UpdatesPanel form={form} setForm={setForm} />}
 
           {(dirty || save.isPending || (save.isSuccess && FORM_SECTIONS.has(section))) && (
             <div className="save-bar">
@@ -484,6 +478,13 @@ function AdminSettings() {
             </div>
           )}
         </form>
+
+        {section === 'watchlists' &&
+          (dirty ? <p className="muted small">Save your changes to connect your own accounts.</p> : <WatchlistLinksPanel />)}
+        {section === 'users' && <UsersPanel />}
+        {section === 'system' && <SystemPanel />}
+        {section === 'account' && <SecurityPanel />}
+        </div>
       </div>
     </div>
   );

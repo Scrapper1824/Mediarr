@@ -18,6 +18,8 @@ export interface AddMediaInput {
   animeAudio?: AnimeAudio;
   /** Username of whoever asked for it, for History. */
   requestedBy?: string;
+  /** Already on disk (library scan): use this folder as it is instead of choosing/naming one. */
+  location?: { root: string; folder: string };
 }
 
 interface EpisodeInput {
@@ -28,11 +30,13 @@ interface EpisodeInput {
   airDate: string | null;
 }
 
-const by = (input: AddMediaInput) => (input.requestedBy ? ` (requested by ${input.requestedBy})` : '');
+const by = (input: AddMediaInput) =>
+  input.location ? ` (found in ${input.location.root})` : input.requestedBy ? ` (requested by ${input.requestedBy})` : '';
 
 export async function addMedia(input: AddMediaInput): Promise<number> {
   const s = getSettings();
-  const rootFor = (folder: string) => chooseRoot(s, input.type, folder)!;
+  const rootFor = (folder: string) => input.location?.root ?? chooseRoot(s, input.type, folder)!;
+  const nameFor = (folder: string) => input.location?.folder ?? folder;
   if (!rootsFor(s, input.type).length) throw new Error(`Set the ${input.type === 'movie' ? 'Movies' : input.type === 'show' ? 'Shows' : 'Anime'} folder in Settings first.`);
   const monitored = input.monitored ?? true;
 
@@ -51,7 +55,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
     const m = await getMovie(input.tmdbId!);
     const alt = m.originalTitle && m.originalTitle !== m.title ? [m.originalTitle] : [];
     const r = insert.run('movie', m.tmdbId, null, m.title, JSON.stringify(alt), m.year, m.poster, m.overview, rootFor(folderName('movie', m.title, m.year)),
-      folderName('movie', m.title, m.year), monitored ? 1 : 0, null, m.status, m.releaseDate, now(), now(), null);
+      nameFor(folderName('movie', m.title, m.year)), monitored ? 1 : 0, null, m.status, m.releaseDate, now(), now(), null);
     logHistory(Number(r.lastInsertRowid), 'added', `Added movie ${m.title}${by(input)}`);
     return Number(r.lastInsertRowid);
   }
@@ -60,7 +64,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
     const show = await getShow(input.tmdbId!);
     const alt = show.originalTitle && show.originalTitle !== show.title ? [show.originalTitle] : [];
     const r = insert.run('show', show.tmdbId, null, show.title, JSON.stringify(alt), show.year, show.poster, show.overview, rootFor(folderName('show', show.title, show.year)),
-      folderName('show', show.title, show.year), monitored ? 1 : 0, null, show.status, null, now(), now(), null);
+      nameFor(folderName('show', show.title, show.year)), monitored ? 1 : 0, null, show.status, null, now(), now(), null);
     const id = Number(r.lastInsertRowid);
     const eps = await getShowEpisodes(show.tmdbId, show.seasons.map((x) => x.season));
     const wanted = new Set(input.seasons ?? show.seasons.filter((x) => x.season > 0).map((x) => x.season));
@@ -78,7 +82,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
   if (existing) return existing;
   const audio = input.animeAudio ?? s.defaultAnimeAudio;
   const r = insert.run('anime', null, a.anilistId, a.title, JSON.stringify(a.altTitles), a.year, a.poster, a.overview, rootFor(folderName('anime', a.title, a.year)),
-    folderName('anime', a.title, a.year), monitored ? 1 : 0, audio, a.status, null, now(), now(), JSON.stringify(a.seasons));
+    nameFor(folderName('anime', a.title, a.year)), monitored ? 1 : 0, audio, a.status, null, now(), now(), JSON.stringify(a.seasons));
   const id = Number(r.lastInsertRowid);
   const wanted = new Set(input.seasons ?? a.seasons.map((x) => x.season));
   upsertEpisodes(id, animeEpisodes(a), (e) => wanted.has(e.season));

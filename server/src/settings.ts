@@ -16,6 +16,8 @@ export interface Settings {
   animeRoots: string[];
   /** A drive with less free space than this is skipped for new titles while another folder has room. */
   minFreeSpaceGb: number;
+  /** Look through the library folders for titles/files added outside Mediarr every N hours (0 = only by hand). */
+  libraryScanHours: number;
   preferredResolution: '2160p' | '1080p' | '720p' | '480p';
   allow4k: boolean;
   minSeeders: number;
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showsRoots: [],
   animeRoots: [],
   minFreeSpaceGb: 50,
+  libraryScanHours: 12,
   preferredResolution: '1080p',
   allow4k: false,
   minSeeders: 1,

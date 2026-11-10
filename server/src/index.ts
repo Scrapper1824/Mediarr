@@ -7,6 +7,7 @@ import { defaultDbPath, initDb } from './db.js';
 import { startScheduler } from './core/monitor.js';
 import { queueLibraryWork } from './playback/jobs.js';
 import { startUpdateChecks } from './system/updater.js';
+import { startLibraryScans } from './core/scanner.js';
 
 // Started hidden from the tray there's no console: send console output to the log file as well.
 if (process.env.MEDIARR_LOG_FILE) {
@@ -41,6 +42,8 @@ startScheduler();
 setTimeout(() => queueLibraryWork(), 60_000).unref();
 // New releases on GitHub show up as "Update available" for admins.
 startUpdateChecks(path.join(dataDir, 'update.log'));
+// Titles and files put in the library folders outside Mediarr are picked up (then previews/intros are made for them).
+startLibraryScans(() => queueLibraryWork());
 await app.listen({ port: PORT, host: HOST });
 console.log(`Mediarr running at http://localhost:${PORT}`);
 

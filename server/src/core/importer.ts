@@ -14,7 +14,7 @@ interface FoundFile {
   size: number;
 }
 
-async function walk(p: string): Promise<FoundFile[]> {
+export async function walk(p: string): Promise<FoundFile[]> {
   const st = await fs.stat(p);
   if (st.isFile()) return [{ full: p, size: st.size }];
   const out: FoundFile[] = [];
@@ -24,7 +24,7 @@ async function walk(p: string): Promise<FoundFile[]> {
   return out;
 }
 
-const isSample = (f: FoundFile) => /(^|[\W_])sample([\W_]|$)/i.test(path.basename(f.full)) && f.size < 500 * 1024 ** 2;
+export const isSample = (f: FoundFile) => /(^|[\W_])sample([\W_]|$)/i.test(path.basename(f.full)) && f.size < 500 * 1024 ** 2;
 
 /**
  * Bonus material that ships inside season packs and bundles: creditless openings/endings, OVAs,

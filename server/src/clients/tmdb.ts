@@ -15,6 +15,8 @@ export interface SearchResult {
   extra?: string;
   /** TMDB show that is really Japanese anime (it belongs in the Anime tab). */
   isAnime?: boolean;
+  /** Other names (original title, romaji…), for matching folder names when scanning the library. */
+  altTitles?: string[];
 }
 
 export interface TmdbEpisode {
@@ -73,6 +75,7 @@ const toMovie = (m: any): SearchResult => ({
   poster: poster(m.poster_path),
   overview: m.overview ?? '',
   ...(isAnimeTitle(m) ? { isAnime: true } : {}),
+  ...(m.original_title && m.original_title !== m.title ? { altTitles: [m.original_title] } : {}),
 });
 
 const toShow = (s: any): SearchResult => ({
@@ -83,6 +86,7 @@ const toShow = (s: any): SearchResult => ({
   poster: poster(s.poster_path),
   overview: s.overview ?? '',
   ...(isAnimeTitle(s) ? { isAnime: true } : {}),
+  ...(s.original_name && s.original_name !== s.name ? { altTitles: [s.original_name] } : {}),
 });
 
 export async function searchMovies(query: string): Promise<SearchResult[]> {

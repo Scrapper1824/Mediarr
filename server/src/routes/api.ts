@@ -34,6 +34,8 @@ import type { SearchScope } from '../core/scoring.js';
 import { activeEpisodeIds, db, getEpisodes, getMedia, hasActiveDownload, logHistory, now, type DownloadRow, type MediaRow, type MediaType } from '../db.js';
 import { getSettings, ROOT_KEYS, saveSettings, SECRET_KEYS, type Settings } from '../settings.js';
 import { folderSpace } from '../core/rootFolders.js';
+import { identifyFolder, scanLibrary, scanStatus } from '../core/scanner.js';
+import { queueMediaWork } from '../playback/jobs.js';
 import { beginInstall, checkForUpdate, updateInfo } from '../system/updater.js';
 import { ffmpegInfo } from '../playback/ffmpeg.js';
 
@@ -119,6 +121,24 @@ export async function apiRoutes(app: FastifyInstance) {
   app.post('/api/system/monitor', async () => runMonitor());
 
   // "Start when I log in to Windows" (admin-only like everything not opened to users in security.ts).
+  // Library scan: titles already in the library folders (admins only).
+  app.get('/api/library/scan', async () => scanStatus());
+  app.post('/api/library/scan', async () => {
+    void scanLibrary().then((s) => s.added.forEach((a) => queueMediaWork(a.id)));
+    await new Promise((r) => setTimeout(r, 50));
+    return scanStatus();
+  });
+  app.post<{ Body: { type?: string; root?: string; folder?: string; tmdbId?: number; anilistId?: number } }>('/api/library/identify', async (req, reply) => {
+    const { type, root, folder } = req.body ?? {};
+    const id = Number(type === 'anime' ? req.body?.anilistId : req.body?.tmdbId);
+    if (!['movie', 'show', 'anime'].includes(String(type)) || typeof root !== 'string' || typeof folder !== 'string' || !Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ error: 'Bad request' });
+    }
+    const m = await identifyFolder(type as MediaType, root, folder, type === 'anime' ? { anilistId: id } : { tmdbId: id });
+    queueMediaWork(m.id);
+    return { id: m.id, title: m.title, status: scanStatus() };
+  });
+
   // Updates from the GitHub repo's releases (admins only).
   app.get('/api/system/update', async () => updateInfo());
   app.post('/api/system/update/check', async () => checkForUpdate());

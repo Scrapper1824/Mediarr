@@ -145,6 +145,7 @@ export interface Settings {
   showsRoots: string[];
   animeRoots: string[];
   minFreeSpaceGb: number;
+  libraryScanHours: number;
   preferredResolution: string;
   allow4k: boolean;
   minSeeders: number;

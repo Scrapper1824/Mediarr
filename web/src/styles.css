@@ -728,3 +728,14 @@ select.input { cursor: pointer; }
 .update-wait { padding-left: 34px; }
 .update-log { max-height: 200px; overflow: auto; font-size: 12px; background: var(--bg-2); border-radius: 8px; padding: 10px; white-space: pre-wrap; }
 @keyframes pulse { 50% { opacity: 0.45; } }
+/* ---------- Library scan ---------- */
+.scan-hours { width: 70px; margin: 0 6px; }
+.scan-summary { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.scan-unmatched { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.scan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.scan-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
+.scan-folder { min-width: 0; overflow-wrap: anywhere; }
+.identify-results { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.identify-results li { display: flex; align-items: center; gap: 12px; padding: 6px; border-radius: 10px; background: var(--bg-2); }
+.identify-results img, .identify-noposter { width: 46px; height: 69px; object-fit: cover; border-radius: 6px; flex: none; background: var(--panel-2); }
+.identify-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

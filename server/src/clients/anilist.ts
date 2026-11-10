@@ -127,6 +127,7 @@ export async function searchAnime(search: string): Promise<SearchResult[]> {
       ]
         .filter(Boolean)
         .join(' · '),
+      altTitles: [...new Set(group.flatMap((m) => [m.title.romaji, m.title.english, m.title.native, ...(m.synonyms ?? [])]).filter(Boolean))] as string[],
     });
   }
   return results;

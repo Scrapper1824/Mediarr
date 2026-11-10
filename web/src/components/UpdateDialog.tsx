@@ -102,10 +102,10 @@ export default function UpdateDialog({ onClose }: { onClose: () => void }) {
             </a>
           </p>
           <div className="row update-actions">
-            <button className="btn ghost" onClick={onClose}>
+            <button type="button" className="btn ghost" onClick={onClose}>
               Not now
             </button>
-            <button className="btn primary" disabled={install.isPending} onClick={() => install.mutate()}>
+            <button type="button" className="btn primary" disabled={install.isPending} onClick={() => install.mutate()}>
               {install.isPending ? 'Starting…' : 'Update & restart'}
             </button>
           </div>
@@ -133,7 +133,7 @@ export default function UpdateDialog({ onClose }: { onClose: () => void }) {
           <p className="muted small">Mediarr is still running the previous version; nothing was changed.</p>
           {job && job.log.length > 0 && <pre className="update-log">{job.log.slice(-12).join('\n')}</pre>}
           <div className="row update-actions">
-            <button className="btn" onClick={onClose}>
+            <button type="button" className="btn" onClick={onClose}>
               Close
             </button>
           </div>
