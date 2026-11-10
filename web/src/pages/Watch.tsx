@@ -638,11 +638,16 @@ function Player({ info }: { info: PlayInfo }) {
                   style={{ width: thumb.w, height: thumb.h, backgroundImage: `url(${thumb.url})`, backgroundPosition: `-${thumb.x}px -${thumb.y}px` }}
                 />
               )}
-              <span>{clock(preview.t)}</span>
+              <span>
+                {intro && preview.t >= intro.start && preview.t < intro.end ? 'Intro · ' : credits && preview.t >= credits.start && preview.t < credits.end ? 'Credits · ' : ''}
+                {clock(preview.t)}
+              </span>
               {!thumb && extras.pending?.trickplay && <small className="watch-preview-note">Making previews…</small>}
             </div>
           )}
+          <div className="watch-track" />
           <div className="watch-buffered" style={{ width: `${(buffered / duration) * 100}%` }} />
+          <div className="watch-played" style={{ width: `${(Math.min(scrub ?? time, duration) / duration) * 100}%` }} />
           {[intro, credits].map(
             (seg, i) =>
               seg && (
