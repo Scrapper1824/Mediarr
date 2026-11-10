@@ -43,25 +43,12 @@ function EpisodeStatus({ e }: { e: Episode }) {
   return <span className={`badge ${e.monitored ? 'warn' : 'muted'}`}>Missing</span>;
 }
 
-type Progress = Record<string, { position: number; duration: number; watched: boolean }>;
-
-/**
- * Which episode Play starts: the one you're partway through, else the one after the last you
- * watched, else the first. Only episodes with a file; specials (season 0) are skipped.
- */
-export function nextToWatch(episodes: Episode[], progress: Progress): { ep: Episode; resume: boolean } | null {
-  const eps = episodes.filter((e) => e.has_file && e.season > 0).sort((a, b) => a.season - b.season || a.episode - b.episode);
-  if (!eps.length) return null;
-  let last = -1;
-  eps.forEach((e, i) => {
-    const p = progress[e.id];
-    if (p && (p.watched || p.position > 0)) last = i;
-  });
-  if (last < 0) return { ep: eps[0], resume: false };
-  const p = progress[eps[last].id];
-  if (!p.watched) return { ep: eps[last], resume: true };
-  return { ep: eps[last + 1] ?? eps[0], resume: false };
-}
+/** "S01E05" → "E5", or "S2 E5" when the series has more than one season. */
+const episodeButtonLabel = (label: string, manySeasons: boolean) => {
+  const m = /^S0?(\d+)E0?(\d+)$/.exec(label);
+  if (!m) return label;
+  return manySeasons || m[1] !== '1' ? `S${m[1]} E${m[2]}` : `E${m[2]}`;
+};
 
 export default function Detail() {
   const id = Number(useParams().id);
@@ -145,7 +132,7 @@ export default function Detail() {
   const m = q.data;
   const searching = search.isPending || m.search.running;
 
-  const upNext = nextToWatch(m.episodes, watched.data ?? {});
+  const upNext = m.type !== 'movie' && m.play?.kind === 'episode' ? m.play : null;
   const seasonInfo = (n: number) => m.anime_seasons?.find((x) => x.season === n);
   const seasons = [...new Set(m.episodes.map((e) => e.season))].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b));
   const isOpen = (s: number) => open.has(s) || (seasons.length === 1 && !open.has(-s - 1));
@@ -211,8 +198,9 @@ export default function Detail() {
               </Link>
             )}
             {upNext && (
-              <Link className="btn primary play-btn" to={`/watch/episode/${upNext.ep.id}`} title={upNext.ep.title ?? undefined}>
-                ▶ {upNext.resume ? 'Resume' : 'Play'} {m.episodes.some((e) => e.season > 1) || upNext.ep.season !== 1 ? `S${upNext.ep.season} ` : ''}E{upNext.ep.episode}
+              <Link className="btn primary play-btn" to={`/watch/episode/${upNext.id}`} title={upNext.episodeTitle ?? undefined}>
+                ▶ {upNext.resume ? 'Resume' : 'Play'} {episodeButtonLabel(upNext.label ?? '', m.episodes.some((e) => e.season > 1))}
+                {upNext.resume && upNext.minutesLeft ? <span className="play-btn-left"> · {upNext.minutesLeft} min left</span> : null}
               </Link>
             )}
             <button className={`btn${(m.type === 'movie' && m.file_path) || upNext ? '' : ' primary'}`} disabled={searching} onClick={() => search.mutate({})}>

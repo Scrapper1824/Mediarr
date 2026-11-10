@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { continueWatching, homeFor, playableEpisodes, progressOf } from '../core/home.js';
 import { isInside } from '../core/importer.js';
-import { db, getEpisodes, getMedia, now, type EpisodeRow, type MediaRow } from '../db.js';
+import { db, getMedia, now, type EpisodeRow, type MediaRow } from '../db.js';
 import { getSettings } from '../settings.js';
 import { decidePlayback, QUALITIES, type ClientCaps, type PlayChoice, type Quality } from '../playback/decide.js';
 import { ffmpegInfo, requireFfmpeg } from '../playback/ffmpeg.js';
@@ -61,16 +62,10 @@ const label = (p: Playable) =>
     ? `S${String(p.episode.season).padStart(2, '0')}E${String(p.episode.episode).padStart(2, '0')}${p.episode.title ? ` · ${p.episode.title}` : ''}`
     : null;
 
-function progressOf(userId: number, mediaId: number, episodeId: number) {
-  return (db.prepare('SELECT position, duration, watched FROM watch_progress WHERE user_id = ? AND media_id = ? AND episode_id = ?').get(userId, mediaId, episodeId) as
-    | { position: number; duration: number; watched: number }
-    | undefined) ?? { position: 0, duration: 0, watched: 0 };
-}
-
 /** The episode with a file just after (step 1) or before (step -1) this one; specials are skipped. */
 function episodeAround(p: Playable, step: 1 | -1): EpisodeRow | null {
   if (!p.episode) return null;
-  const eps = getEpisodes(p.media.id).filter((e) => e.has_file && e.file_path && e.season > 0);
+  const eps = playableEpisodes(p.media.id);
   const i = eps.findIndex((e) => e.id === p.episode!.id);
   return i >= 0 ? (eps[i + step] ?? null) : null;
 }
@@ -280,41 +275,8 @@ export async function playRoutes(app: FastifyInstance) {
   });
 
   /** Continue Watching (started, not finished) and Next Up (the episode after the last one finished). */
-  app.get('/api/continue', async (req) => {
-    const userId = req.user!.id;
-    const rows = db
-      .prepare('SELECT media_id, episode_id, position, duration, watched, updated_at FROM watch_progress WHERE user_id = ? ORDER BY updated_at DESC LIMIT 200')
-      .all(userId) as { media_id: number; episode_id: number; position: number; duration: number; watched: number; updated_at: string }[];
-    const seen = new Set<number>();
-    const items: unknown[] = [];
-    for (const r of rows) {
-      if (seen.has(r.media_id)) continue;
-      const media = getMedia(r.media_id);
-      if (!media) continue;
-      seen.add(r.media_id);
-      // The ids let the page open the title's info popup (TMDB for movies/shows, AniList for anime).
-      const base = {
-        mediaId: media.id,
-        title: media.title,
-        poster: media.poster,
-        type: media.type,
-        year: media.year,
-        tmdbId: media.tmdb_id ?? undefined,
-        anilistId: media.anilist_id ?? undefined,
-      };
-      if (!r.watched && r.position > 30) {
-        const ep = r.episode_id ? (db.prepare('SELECT * FROM episodes WHERE id = ?').get(r.episode_id) as EpisodeRow | undefined) : undefined;
-        if (r.episode_id && !ep?.file_path) continue;
-        items.push({ ...base, kind: ep ? 'episode' : 'movie', id: ep ? ep.id : media.id, label: ep ? `S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}` : null, position: r.position, duration: r.duration, upNext: false });
-      } else if (r.watched && r.episode_id) {
-        const episode = (db.prepare('SELECT * FROM episodes WHERE id = ?').get(r.episode_id) as EpisodeRow | undefined) ?? null;
-        const next = episode ? nextEpisode({ kind: 'episode', id: episode.id, media, episode, file: '' }) : null;
-        if (next && !progressOf(userId, media.id, next.id).watched) {
-          items.push({ ...base, kind: 'episode', id: next.id, label: `S${String(next.season).padStart(2, '0')}E${String(next.episode).padStart(2, '0')}`, position: 0, duration: 0, upNext: true });
-        }
-      }
-      if (items.length >= 20) break;
-    }
-    return items;
-  });
+  app.get('/api/continue', async (req) => continueWatching(req.user!.id));
+
+  /** The Home page: banner, continue watching, recently added, and what is downloaded per type (your own progress only). */
+  app.get('/api/home', async (req) => homeFor(req.user!.id));
 }

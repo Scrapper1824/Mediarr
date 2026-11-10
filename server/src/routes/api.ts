@@ -39,6 +39,7 @@ import { queueMediaWork } from '../playback/jobs.js';
 import { beginInstall, checkForUpdate, updateInfo } from '../system/updater.js';
 import { ffmpegInfo } from '../playback/ffmpeg.js';
 import { testGpu } from '../playback/gpuTest.js';
+import { playTarget } from '../core/home.js';
 
 const MASK = '********';
 
@@ -262,7 +263,8 @@ export async function apiRoutes(app: FastifyInstance) {
         release: string;
       }[]
     ).map((x) => ({ ...x, release: JSON.parse(x.release) }));
-    return { ...mediaSummary(m), episodes, downloads, suggestions };
+    // What this user's Play button starts (same rule as Home and Continue watching).
+    return { ...mediaSummary(m), episodes, downloads, suggestions, play: playTarget(req.user!.id, m) };
   });
 
   app.post<{ Body: AddMediaInput & { searchNow?: boolean } }>('/api/media', async (req) => {

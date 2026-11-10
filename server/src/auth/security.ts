@@ -69,6 +69,7 @@ export const USER_ALLOWED = new Set([
   'PUT /api/play/:kind/:id/progress',
   'GET /api/play/progress/:mediaId',
   'GET /api/continue',
+  'GET /api/home',
 ]);
 
 /** Header the web app sends on every request that changes something; other sites can't set it (no CORS). */

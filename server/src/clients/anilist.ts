@@ -16,6 +16,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 
 const FIELDS = `
   id
+  bannerImage
   title { romaji english native }
   synonyms
   format
@@ -42,6 +43,7 @@ interface AnimeEntry {
   titles: string[];
   year: number | null;
   poster: string | null;
+  banner: string | null;
   overview: string;
   status: string;
   format: string;
@@ -61,6 +63,8 @@ export interface AnimeSeries {
   altTitles: string[];
   year: number | null;
   poster: string | null;
+  /** The banner of the first season that has one (later seasons often share the look). */
+  backdrop: string | null;
   overview: string;
   status: string;
   seasons: AnimeSeason[];
@@ -172,6 +176,7 @@ async function getEntry(id: number): Promise<AnimeEntry> {
     titles,
     year: m.seasonYear ?? m.startDate?.year ?? null,
     poster: m.coverImage?.large ?? null,
+    banner: m.bannerImage ?? null,
     overview: stripHtml(m.description),
     status: m.status,
     format: m.format,
@@ -202,6 +207,18 @@ async function nextMain(from: AnimeEntry, dir: 'prequels' | 'sequels', seen: Set
  * Builds a whole series from any of its entries: walks back to the first TV season,
  * then forward through sequels. Each main entry becomes a season.
  */
+/** The first banner among these AniList entries (in the order given), in one request. */
+export async function animeBanner(ids: number[]): Promise<string | null> {
+  if (!ids.length) return null;
+  const data = await gql<{ Page: { media: { id: number; bannerImage: string | null }[] } }>(
+    `query ($ids: [Int]) { Page(perPage: 50) { media(id_in: $ids, type: ANIME) { id bannerImage } } }`,
+    { ids },
+  );
+  const byId = new Map(data.Page.media.map((m) => [m.id, m.bannerImage]));
+  for (const id of ids) if (byId.get(id)) return byId.get(id)!;
+  return null;
+}
+
 export async function getAnimeSeries(id: number): Promise<AnimeSeries> {
   const seen = new Set<number>();
   let root = await getEntry(id);
@@ -260,6 +277,7 @@ export async function getAnimeSeries(id: number): Promise<AnimeSeries> {
     altTitles: [first.title, ...allTitles.filter((t) => t !== first.title)],
     year: first.year,
     poster: first.poster,
+    backdrop: chain.find((c) => c.banner)?.banner ?? null,
     overview: first.overview,
     status: last.status,
     seasons,

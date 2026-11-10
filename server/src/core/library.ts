@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { getAnimeSeries, type AnimeSeries } from '../clients/anilist.js';
+import { animeBanner, getAnimeSeries, type AnimeSeries } from '../clients/anilist.js';
 import { getMovie, getShow, getShowEpisodes } from '../clients/tmdb.js';
 import { db, getEpisodes, getMedia, logHistory, now, type AnimeAudio, type MediaRow, type MediaType } from '../db.js';
 import { getSettings, rootsFor } from '../settings.js';
@@ -48,14 +48,14 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
   }
 
   const insert = db.prepare(`INSERT INTO media
-    (type, tmdb_id, anilist_id, title, alt_titles, year, poster, overview, root_folder, folder_name, monitored, anime_audio, status, release_date, added_at, last_refresh, anime_seasons)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    (type, tmdb_id, anilist_id, title, alt_titles, year, poster, overview, root_folder, folder_name, monitored, anime_audio, status, release_date, added_at, last_refresh, anime_seasons, backdrop)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   if (input.type === 'movie') {
     const m = await getMovie(input.tmdbId!);
     const alt = m.originalTitle && m.originalTitle !== m.title ? [m.originalTitle] : [];
     const r = insert.run('movie', m.tmdbId, null, m.title, JSON.stringify(alt), m.year, m.poster, m.overview, rootFor(folderName('movie', m.title, m.year)),
-      nameFor(folderName('movie', m.title, m.year)), monitored ? 1 : 0, null, m.status, m.releaseDate, now(), now(), null);
+      nameFor(folderName('movie', m.title, m.year)), monitored ? 1 : 0, null, m.status, m.releaseDate, now(), now(), null, m.backdrop ?? null);
     logHistory(Number(r.lastInsertRowid), 'added', `Added movie ${m.title}${by(input)}`);
     return Number(r.lastInsertRowid);
   }
@@ -64,7 +64,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
     const show = await getShow(input.tmdbId!);
     const alt = show.originalTitle && show.originalTitle !== show.title ? [show.originalTitle] : [];
     const r = insert.run('show', show.tmdbId, null, show.title, JSON.stringify(alt), show.year, show.poster, show.overview, rootFor(folderName('show', show.title, show.year)),
-      nameFor(folderName('show', show.title, show.year)), monitored ? 1 : 0, null, show.status, null, now(), now(), null);
+      nameFor(folderName('show', show.title, show.year)), monitored ? 1 : 0, null, show.status, null, now(), now(), null, show.backdrop ?? null);
     const id = Number(r.lastInsertRowid);
     const eps = await getShowEpisodes(show.tmdbId, show.seasons.map((x) => x.season));
     const wanted = new Set(input.seasons ?? show.seasons.filter((x) => x.season > 0).map((x) => x.season));
@@ -82,7 +82,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
   if (existing) return existing;
   const audio = input.animeAudio ?? s.defaultAnimeAudio;
   const r = insert.run('anime', null, a.anilistId, a.title, JSON.stringify(a.altTitles), a.year, a.poster, a.overview, rootFor(folderName('anime', a.title, a.year)),
-    nameFor(folderName('anime', a.title, a.year)), monitored ? 1 : 0, audio, a.status, null, now(), now(), JSON.stringify(a.seasons));
+    nameFor(folderName('anime', a.title, a.year)), monitored ? 1 : 0, audio, a.status, null, now(), now(), JSON.stringify(a.seasons), a.backdrop ?? null);
   const id = Number(r.lastInsertRowid);
   const wanted = new Set(input.seasons ?? a.seasons.map((x) => x.season));
   upsertEpisodes(id, animeEpisodes(a), (e) => wanted.has(e.season));
@@ -169,8 +169,8 @@ export async function refreshMedia(id: number): Promise<void> {
   );
   if (m.type === 'movie') {
     const d = await getMovie(m.tmdb_id!);
-    db.prepare('UPDATE media SET status = ?, release_date = ?, poster = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
-      d.status, d.releaseDate, d.poster, d.overview, now(), id);
+    db.prepare('UPDATE media SET status = ?, release_date = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
+      d.status, d.releaseDate, d.poster, d.backdrop ?? null, d.overview, now(), id);
     return;
   }
   if (m.type === 'show') {
@@ -182,8 +182,8 @@ export async function refreshMedia(id: number): Promise<void> {
       eps.map((e) => ({ season: e.season, episode: e.episode, absolute: null, title: e.title, airDate: e.airDate })),
       (e) => e.season > 0 && (monitoredSeasons.has(e.season) || (!!m.monitored && !known.has(e.season))),
     );
-    db.prepare('UPDATE media SET status = ?, poster = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
-      show.status, show.poster, show.overview, now(), id);
+    db.prepare('UPDATE media SET status = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
+      show.status, show.poster, show.backdrop ?? null, show.overview, now(), id);
     if (added) logHistory(id, 'refreshed', `Found ${added} new episode(s)`);
     return;
   }
@@ -194,8 +194,8 @@ export async function refreshMedia(id: number): Promise<void> {
     animeEpisodes(a),
     (e) => monitoredSeasons.has(e.season) || (!!m.monitored && !known.has(e.season)),
   );
-  db.prepare('UPDATE media SET status = ?, alt_titles = ?, anime_seasons = ?, poster = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
-    a.status, JSON.stringify(a.altTitles), JSON.stringify(a.seasons), a.poster, a.overview, now(), id);
+  db.prepare('UPDATE media SET status = ?, alt_titles = ?, anime_seasons = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
+    a.status, JSON.stringify(a.altTitles), JSON.stringify(a.seasons), a.poster, a.backdrop ?? null, a.overview, now(), id);
   if (added) logHistory(id, 'refreshed', `Found ${added} new episode(s)`);
 }
 
@@ -224,4 +224,33 @@ export function withLibraryIds<T extends { tmdbId?: number; anilistId?: number }
           (r.anilistId && (l.anilist_id === r.anilistId || animeSeasons(l).some((s) => s.anilistIds.includes(r.anilistId!)))),
       )?.id ?? null,
   }));
+}
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Backdrops for titles added before Mediarr stored them (the Home page uses them). One small request per
+ * title, spaced out. A title with no backdrop anywhere is marked '' so it isn't asked about again;
+ * a failed request leaves it for next time.
+ */
+export async function backfillBackdrops(opts: { delayMs?: number } = {}): Promise<number> {
+  const rows = db.prepare('SELECT * FROM media WHERE backdrop IS NULL ORDER BY added_at DESC').all() as unknown as MediaRow[];
+  let filled = 0;
+  for (const m of rows) {
+    try {
+      let url: string | null = null;
+      if (m.type === 'movie' && m.tmdb_id) url = (await getMovie(m.tmdb_id)).backdrop;
+      else if (m.type === 'show' && m.tmdb_id) url = (await getShow(m.tmdb_id)).backdrop;
+      else if (m.type === 'anime' && m.anilist_id) {
+        const seasons = JSON.parse(m.anime_seasons ?? '[]') as { anilistIds?: number[] }[];
+        url = await animeBanner([...new Set([m.anilist_id, ...seasons.flatMap((s) => s.anilistIds ?? [])])]);
+      } else continue;
+      db.prepare('UPDATE media SET backdrop = ? WHERE id = ?').run(url ?? '', m.id);
+      if (url) filled++;
+    } catch {
+      // Offline or rate-limited: try again on the next start.
+    }
+    await pause(opts.delayMs ?? (m.type === 'anime' ? 800 : 250));
+  }
+  return filled;
 }

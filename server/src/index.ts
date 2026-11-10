@@ -8,6 +8,7 @@ import { startScheduler } from './core/monitor.js';
 import { queueLibraryWork } from './playback/jobs.js';
 import { startUpdateChecks } from './system/updater.js';
 import { startLibraryScans } from './core/scanner.js';
+import { backfillBackdrops } from './core/library.js';
 
 // Started hidden from the tray there's no console: send console output to the log file as well.
 if (process.env.MEDIARR_LOG_FILE) {
@@ -40,6 +41,8 @@ setInterval(purgeExpiredSessions, 3600_000).unref();
 startScheduler();
 // Once Mediarr has settled, make previews / find intros for anything in the library that hasn't had them.
 setTimeout(() => queueLibraryWork(), 60_000).unref();
+// Home page backdrops for titles added before they were stored.
+setTimeout(() => void backfillBackdrops().catch(() => undefined), 20_000).unref();
 // New releases on GitHub show up as "Update available" for admins.
 startUpdateChecks(path.join(dataDir, 'update.log'));
 // Titles and files put in the library folders outside Mediarr are picked up (then previews/intros are made for them).

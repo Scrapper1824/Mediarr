@@ -32,6 +32,7 @@ export interface TmdbShowDetails {
   originalTitle: string;
   year: number | null;
   poster: string | null;
+  backdrop: string | null;
   overview: string;
   status: string;
   seasons: { season: number; name: string; episodeCount: number; airDate: string | null }[];
@@ -50,6 +51,9 @@ async function tmdb<T>(path: string, params: Record<string, string> = {}, apiKey
 
 const yearOf = (d?: string | null) => (d ? Number(d.slice(0, 4)) || null : null);
 const poster = (p?: string | null) => (p ? IMG + p : null);
+/** Library backdrops: sharp enough for a full-width banner, light enough for a row of cards. */
+const LIBRARY_BACKDROP = 'https://image.tmdb.org/t/p/w1280';
+const backdrop = (p?: string | null) => (p ? LIBRARY_BACKDROP + p : null);
 
 export async function testTmdb(apiKey: string) {
   await tmdb('/configuration', {}, apiKey);
@@ -154,6 +158,7 @@ export async function getMovie(id: number) {
     year: yearOf(m.release_date),
     releaseDate: (m.release_date as string) || null,
     poster: poster(m.poster_path),
+    backdrop: backdrop(m.backdrop_path),
     overview: (m.overview as string) ?? '',
     status: m.status as string,
   };
@@ -167,6 +172,7 @@ export async function getShow(id: number): Promise<TmdbShowDetails> {
     originalTitle: s.original_name,
     year: yearOf(s.first_air_date),
     poster: poster(s.poster_path),
+    backdrop: backdrop(s.backdrop_path),
     overview: s.overview ?? '',
     status: s.status,
     seasons: (s.seasons ?? []).map((x: any) => ({

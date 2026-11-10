@@ -1,8 +1,9 @@
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Download } from './api';
 import Discover from './pages/Discover';
+import Home from './pages/Home';
 import Library from './pages/Library';
 import Detail from './pages/Detail';
 import Queue from './pages/Queue';
@@ -17,6 +18,7 @@ import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
 const Watch = lazy(() => import('./pages/Watch'));
 
 const NAV = [
+  { to: '/', label: 'Home', icon: '⌂' },
   { to: '/discover', label: 'Discover', icon: '⌕' },
   { to: '/movies', label: 'Movies', icon: '◐' },
   { to: '/shows', label: 'Shows', icon: '▤' },
@@ -63,7 +65,7 @@ function Shell() {
         </div>
         <nav>
           {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <span className="nav-icon">{n.icon}</span>
               <span className="nav-label">{n.to === '/settings' && !isAdmin ? 'Account' : n.label}</span>
               {n.to === '/queue' && activeCount > 0 && <span className="nav-badge">{activeCount}</span>}
@@ -92,7 +94,7 @@ function Shell() {
       {updating && <UpdateDialog onClose={() => setUpdating(false)} />}
       <main className="content">
         <Routes>
-          <Route path="/" element={<Navigate to="/discover" replace />} />
+          <Route path="/" element={<Home />} />
           <Route path="/discover" element={<Discover />} />
           <Route path="/movies" element={<Library type="movie" />} />
           <Route path="/shows" element={<Library type="show" />} />

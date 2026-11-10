@@ -15,6 +15,8 @@ export interface MediaRow {
   alt_titles: string; // JSON string[]
   year: number | null;
   poster: string | null;
+  /** Wide image for the Home page (TMDB backdrop / AniList banner). */
+  backdrop: string | null;
   overview: string | null;
   root_folder: string;
   folder_name: string;
@@ -106,6 +108,7 @@ CREATE TABLE IF NOT EXISTS media (
   alt_titles TEXT NOT NULL DEFAULT '[]',
   year INTEGER,
   poster TEXT,
+  backdrop TEXT,
   overview TEXT,
   root_folder TEXT NOT NULL,
   folder_name TEXT NOT NULL,
@@ -271,6 +274,7 @@ export function initDb(file: string = defaultDbPath()): DatabaseSync {
 function migrate() {
   const cols = (db.prepare('PRAGMA table_info(media)').all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes('anime_seasons')) db.exec('ALTER TABLE media ADD COLUMN anime_seasons TEXT');
+  if (!cols.includes('backdrop')) db.exec('ALTER TABLE media ADD COLUMN backdrop TEXT');
   const dlCols = (db.prepare('PRAGMA table_info(downloads)').all() as { name: string }[]).map((c) => c.name);
   if (!dlCols.includes('select_files')) {
     db.exec('ALTER TABLE downloads ADD COLUMN select_files INTEGER NOT NULL DEFAULT 0');

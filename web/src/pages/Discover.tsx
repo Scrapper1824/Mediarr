@@ -6,7 +6,6 @@ import AddDialog from '../components/AddDialog';
 import Chevron from '../components/Chevron';
 import Hero, { type FeaturedItem } from '../components/Hero';
 import MediaDetails from '../components/MediaDetails';
-import ContinueRow from '../components/ContinueRow';
 import Poster from '../components/Poster';
 
 interface BrowseRowData {
@@ -254,7 +253,6 @@ export default function Discover() {
               Couldn’t load {typeLabel[type].toLowerCase()} to browse: {(browse.error as Error).message}
             </div>
           )}
-          <ContinueRow type={type} onOpen={setViewing} />
           {browse.data?.rows.map((row) => <BrowseRow key={row.id} row={row} onRequest={setAdding} onOpen={setViewing} />)}
         </>
       )}

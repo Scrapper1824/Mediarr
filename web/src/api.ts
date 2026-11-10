@@ -90,6 +90,8 @@ export interface MediaDetail extends Media {
   episodes: Episode[];
   downloads: Download[];
   suggestions: Suggestion[];
+  /** What your Play button starts; null when nothing is downloaded. */
+  play: { kind: 'movie' | 'episode'; id: number; label: string | null; episodeTitle: string | null; resume: boolean; minutesLeft: number | null } | null;
 }
 
 export interface Release {
