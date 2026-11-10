@@ -145,10 +145,15 @@ describe('installing an update', () => {
 
   it('puts the previous version back when the build fails', async () => {
     await checkForUpdate();
-    behaviour['npm build'] = { code: 1, stderr: 'error TS2304: Cannot find name' };
+    behaviour['npm build'] = {
+      code: 1,
+      stdout: '> tsc -p tsconfig.json\nsrc/index.ts(52,7): error TS2322: Type \'string\' is not assignable to type \'number\'.\n',
+      stderr: 'npm error Lifecycle script `build` failed with error:\nnpm error code 2\nnpm error command failed\nnpm error command C:\\WINDOWS\\system32\\cmd.exe /d /s /c tsc -p tsconfig.json\n',
+    };
     beginInstall();
     await settle();
-    expect(updateInfo().job).toMatchObject({ state: 'failed', error: expect.stringMatching(/Building failed/) });
+    // The real reason, not npm's "command failed" footer.
+    expect(updateInfo().job).toMatchObject({ state: 'failed', error: expect.stringMatching(/Building failed: .*error TS2322/) });
     expect(calls.find((c) => c.args[0] === 'reset')!.args).toEqual(['reset', '--hard', 'abc1234']);
     expect(calls.filter((c) => key(c.file, c.args) === 'npm ci')).toHaveLength(2); // reinstalled for the old version
     expect(fs.readFileSync(path.join(root, 'server', 'dist', 'index.js'), 'utf8')).toBe('old build');

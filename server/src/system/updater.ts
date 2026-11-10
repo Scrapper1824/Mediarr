@@ -192,9 +192,16 @@ function log(line: string) {
 async function step(label: string, file: string, args: string[], timeoutMs = 15 * 60_000) {
   log(`$ ${path.basename(file)} ${args.join(' ')}`);
   const r = await deps.run(file, args, { env: NON_INTERACTIVE, timeoutMs });
-  const tail = (r.stdout + r.stderr).trim().split('\n').slice(-8);
-  for (const l of tail) if (l.trim()) log(l.trimEnd());
-  if (r.code !== 0) throw new Error(`${label} failed${tail.length ? `: ${tail[tail.length - 1]}` : ''}`);
+  const lines = (r.stdout + '\n' + r.stderr).split('\n').map((l) => l.trimEnd()).filter(Boolean);
+  for (const l of lines.slice(-25)) log(l);
+  if (r.code !== 0) {
+    // The line that says what went wrong (a TypeScript error, a git fatal…), not npm's "command failed" footer.
+    const reason =
+      lines.find((l) => /error TS\d+|^fatal:|^error:|ERR!|Error: /i.test(l) && !/^npm (error|ERR!) (command|path|code|A complete log)/i.test(l)) ??
+      lines.filter((l) => !/^npm (error|ERR!)/i.test(l)).pop() ??
+      lines.pop();
+    throw new Error(`${label} failed${reason ? `: ${reason.trim()}` : ''}`);
+  }
   return r;
 }
 
