@@ -124,12 +124,22 @@ export async function watchlistRoutes(app: FastifyInstance) {
     return { services, item };
   });
 
-  app.put<{ Body: { type?: string; id?: number; status?: string } }>('/api/watchlist/item', async (req, reply) => {
+  app.put<{ Body: { type?: string; id?: number; status?: string; title?: unknown; year?: unknown; poster?: unknown } }>('/api/watchlist/item', async (req, reply) => {
     const t = parseTitle(req.body?.type, req.body?.id, reply);
     if (!t) return;
     const status = req.body?.status as WatchStatus;
     if (!WATCH_STATUSES.includes(status)) return reply.code(400).send({ error: 'Unknown status' });
-    return setStatus(req.user!.id, t.type, t.id, status);
+    // Shown on your list right away for a title that's new to it (the services can take a moment).
+    const b = req.body ?? {};
+    const info =
+      typeof b.title === 'string' && b.title.trim()
+        ? {
+            title: b.title.slice(0, 300),
+            year: typeof b.year === 'number' && Number.isInteger(b.year) ? b.year : null,
+            poster: typeof b.poster === 'string' && /^https:\/\//.test(b.poster) ? b.poster.slice(0, 500) : null,
+          }
+        : undefined;
+    return setStatus(req.user!.id, t.type, t.id, status, info);
   });
 
   app.delete<{ Querystring: { type?: string; id?: string } }>('/api/watchlist/item', async (req, reply) => {

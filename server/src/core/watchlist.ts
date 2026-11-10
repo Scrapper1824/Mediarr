@@ -180,6 +180,65 @@ export async function syncSimkl(userId: number, clientId: string, token: string)
 // ---- Reading the lists ----
 
 const CACHE_MS = 60_000;
+
+/**
+ * Your own recent changes, laid over what the services return. Simkl only reports a change once its
+ * activity time moves, and both services can lag a little right after a write, so without this the list
+ * would show the old status for a while. A change is dropped once the service agrees, or after 10 minutes.
+ */
+const PENDING_MS = 10 * 60_000;
+interface PendingChange {
+  type: MediaType;
+  id: number;
+  /** null: removed. */
+  status: WatchStatus | null;
+  services: Service[];
+  at: number;
+  info?: { title: string; year: number | null; poster: string | null };
+}
+const pending = new Map<number, Map<string, PendingChange>>();
+export const resetPendingChanges = () => pending.clear();
+
+function remember(userId: number, change: PendingChange) {
+  const mine = pending.get(userId) ?? new Map<string, PendingChange>();
+  mine.set(`${change.type}:${change.id}`, change);
+  pending.set(userId, mine);
+}
+
+/** Applies the user's pending changes to a freshly read list, and forgets the ones the services now show. */
+export function applyPending(userId: number, items: WatchItem[]): WatchItem[] {
+  const mine = pending.get(userId);
+  if (!mine?.size) return items;
+  const out = items.map((i) => ({ ...i, services: { ...i.services } }));
+  for (const [key, c] of mine) {
+    const at = out.findIndex((i) => i.key === key);
+    const agrees = c.status === null ? at < 0 : at >= 0 && c.services.every((s) => out[at].services[s] === c.status);
+    if (agrees || Date.now() - c.at > PENDING_MS) {
+      mine.delete(key);
+      continue;
+    }
+    if (c.status === null) out.splice(at, 1);
+    else if (at >= 0) {
+      out[at].status = c.status;
+      for (const s of c.services) out[at].services[s] = c.status;
+    } else if (c.info) {
+      out.push({
+        key,
+        type: c.type,
+        status: c.status,
+        title: c.info.title,
+        year: c.info.year,
+        poster: c.info.poster,
+        ...(c.type === 'anime' ? { anilistId: c.id } : { tmdbId: c.id }),
+        services: Object.fromEntries(c.services.map((s) => [s, c.status])),
+        progress: null,
+        libraryId: withLibraryIds(c.type, [{ tmdbId: c.type === 'anime' ? undefined : c.id, anilistId: c.type === 'anime' ? c.id : undefined }])[0]?.libraryId ?? null,
+      });
+    }
+  }
+  if (!mine.size) pending.delete(userId);
+  return out.sort((a, b) => a.title.localeCompare(b.title));
+}
 const cache = new Map<number, { at: number; items: WatchItem[]; errors: string[] }>();
 export const forget = (userId: number) => cache.delete(userId);
 
@@ -238,7 +297,7 @@ const friendly = (service: Service, err: unknown) => {
 
 export async function watchlistFor(userId: number): Promise<{ items: WatchItem[]; errors: string[] }> {
   const hit = cache.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit;
+  if (hit && Date.now() - hit.at < CACHE_MS) return { ...hit, items: applyPending(userId, hit.items) };
   const s = getSettings();
   const errors: string[] = [];
   const sk = s.simklClientId ? getLink(userId, 'simkl') : null;
@@ -258,7 +317,7 @@ export async function watchlistFor(userId: number): Promise<{ items: WatchItem[]
   const result = { at: Date.now(), items, errors };
   // Don't remember a failed read for a whole minute.
   if (!errors.length) cache.set(userId, result);
-  return result;
+  return { ...result, items: applyPending(userId, items) };
 }
 
 // ---- Changing the lists ----
@@ -274,7 +333,7 @@ export function servicesFor(userId: number, type: MediaType): Service[] {
 
 const simklIds = (type: MediaType, id: number): simkl.SimklIds => (type === 'anime' ? { anilist: id } : { tmdb: id });
 
-async function eachService(userId: number, type: MediaType, run: (service: Service, link: Link) => Promise<void>) {
+async function eachService(userId: number, type: MediaType, run: (service: Service, link: Link) => Promise<void>, change?: Omit<PendingChange, 'services' | 'at'>) {
   const services = servicesFor(userId, type);
   if (!services.length) {
     throw Object.assign(new Error(type === 'anime' ? 'Connect Simkl or AniList first (Settings → Watchlists).' : 'Connect Simkl first (Settings → Watchlists).'), {
@@ -282,31 +341,44 @@ async function eachService(userId: number, type: MediaType, run: (service: Servi
     });
   }
   const errors: string[] = [];
+  const written: Service[] = [];
   for (const service of services) {
     try {
       await run(service, getLink(userId, service)!);
+      written.push(service);
     } catch (err) {
       errors.push(friendly(service, err));
     }
   }
   forget(userId);
+  if (change && written.length) remember(userId, { ...change, services: written, at: Date.now() });
   if (errors.length === services.length) throw Object.assign(new Error(errors.join(' ')), { statusCode: 502 });
   return { warnings: errors };
 }
 
 /** Adds a title to the user's lists, or moves it to another status. `id` is TMDB's (movie/show) or AniList's (anime). */
-export function setStatus(userId: number, type: MediaType, id: number, status: WatchStatus) {
+export function setStatus(userId: number, type: MediaType, id: number, status: WatchStatus, info?: PendingChange['info']) {
   const clientId = getSettings().simklClientId;
-  return eachService(userId, type, async (service, link) => {
-    if (service === 'simkl') await withSimkl(userId, link, (token) => simkl.addToList(clientId, token, type, simklIds(type, id), toSimkl(status)));
-    else await anilist.saveEntry(link.token, id, toAniList(status));
-  });
+  return eachService(
+    userId,
+    type,
+    async (service, link) => {
+      if (service === 'simkl') await withSimkl(userId, link, (token) => simkl.addToList(clientId, token, type, simklIds(type, id), toSimkl(status)));
+      else await anilist.saveEntry(link.token, id, toAniList(status));
+    },
+    { type, id, status, info },
+  );
 }
 
 export function removeTitle(userId: number, type: MediaType, id: number) {
   const clientId = getSettings().simklClientId;
-  return eachService(userId, type, async (service, link) => {
-    if (service === 'simkl') await withSimkl(userId, link, (token) => simkl.removeFromList(clientId, token, type, simklIds(type, id)));
-    else await anilist.deleteEntry(link.token, Number(link.accountId), id);
-  });
+  return eachService(
+    userId,
+    type,
+    async (service, link) => {
+      if (service === 'simkl') await withSimkl(userId, link, (token) => simkl.removeFromList(clientId, token, type, simklIds(type, id)));
+      else await anilist.deleteEntry(link.token, Number(link.accountId), id);
+    },
+    { type, id, status: null },
+  );
 }

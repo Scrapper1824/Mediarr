@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, WATCH_STATUSES, watchStatusLabel, type MediaType, type WatchStatus } from '../api';
+import { api, WATCH_STATUSES, watchStatusLabel, type MediaType, type WatchItem, type WatchStatus } from '../api';
 
 /**
  * Status picker for one title on the user's watchlists: pick a status to add/move it, or remove it.
@@ -13,12 +13,15 @@ export default function WatchlistMenu({
   status,
   className,
   compact,
+  info,
 }: {
   type: MediaType;
   id: number;
   status: WatchStatus | null;
   className?: string;
   compact?: boolean;
+  /** Name, year and poster, so a title new to your list shows up on it straight away. */
+  info?: { title: string; year: number | null; poster: string | null };
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -68,8 +71,21 @@ export default function WatchlistMenu({
     };
   }, [open]);
 
-  const done = (r: { warnings?: string[] }) => {
+  const key = `${type}:${id}`;
+  /** Shows the change on every open list right away; the refetch afterwards brings the services' own view. */
+  const show = (next: WatchStatus | null) => {
+    qc.setQueryData<{ items: WatchItem[]; errors: string[] }>(['watchlist', 'items'], (old) => {
+      if (!old) return old;
+      const items = old.items.filter((i) => i.key !== key || next !== null).map((i) => (i.key === key && next ? { ...i, status: next } : i));
+      return { ...old, items };
+    });
+    qc.setQueryData<{ services: string[]; item: WatchItem | null }>(['watchlist', 'item', type, id], (old) =>
+      old ? { ...old, item: next ? ({ ...(old.item ?? { key, type, title: info?.title ?? '', year: info?.year ?? null, poster: info?.poster ?? null, services: {}, progress: null, libraryId: null }), status: next } as WatchItem) : null } : old,
+    );
+  };
+  const done = (next: WatchStatus | null) => (r: { warnings?: string[] }) => {
     setWarning(r.warnings?.length ? r.warnings.join(' ') : null);
+    show(next);
     qc.invalidateQueries({ queryKey: ['watchlist'] });
   };
   const set = useMutation({
@@ -78,12 +94,13 @@ export default function WatchlistMenu({
         type,
         id,
         status: s,
+        ...(info ? { title: info.title, year: info.year, poster: info.poster } : {}),
       }),
-    onSuccess: done,
+    onSuccess: (r, s) => done(s)(r),
   });
   const remove = useMutation({
     mutationFn: () => api.del<{ warnings: string[] }>(`/api/watchlist/item?type=${type}&id=${id}`),
-    onSuccess: done,
+    onSuccess: (r) => done(null)(r),
   });
   const busy = set.isPending || remove.isPending;
   const error = (set.error ?? remove.error) as Error | null;

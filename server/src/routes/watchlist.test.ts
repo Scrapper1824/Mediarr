@@ -8,6 +8,7 @@ import { resetRateLimits } from '../auth/rateLimit.js';
 import { prepareSetupCode } from '../auth/routes.js';
 import { db, initDb } from '../db.js';
 import { saveSettings } from '../settings.js';
+import { resetPendingChanges } from '../core/watchlist.js';
 
 const CSRF = { 'x-requested-with': 'mediarr' };
 const PASSWORD = 'correct horse battery staple';
@@ -102,6 +103,7 @@ beforeEach(async () => {
   app = await buildApp({ dataDir, webDist: null, logLevel: 'silent' });
   saveSettings({ simklClientId: 'simkl-app', anilistClientId: '12345' });
   fakeServices();
+  resetPendingChanges();
   vi.useFakeTimers({ toFake: ['Date'] });
 });
 afterEach(async () => {
@@ -258,6 +260,34 @@ describe('per-user watchlists', () => {
 
     expect((await call(boss, 'DELETE', '/api/watchlist/item?type=movie&id=438631')).statusCode).toBe(200);
     expect(calls.find((c) => c.url.includes('/sync/history/remove'))!.body).toEqual({ movies: [{ ids: { tmdb: 438631 } }] });
+  });
+
+  it('shows your change straight away, even before Simkl reports it', async () => {
+    const { boss } = await users();
+    await connectSimkl(boss);
+    const list = async () => (await call(boss, 'GET', '/api/watchlist')).json().items as { key: string; status: string }[];
+    const summary = async () => (await list()).map((i) => `${i.key} ${i.status}`);
+    expect((await list())[0]).toMatchObject({ key: 'movie:438631', status: 'planned' });
+
+    // Simkl took the change but hasn't moved its activity time yet (the fake never does on its own).
+    await call(boss, 'PUT', '/api/watchlist/item', { type: 'movie', id: 438631, status: 'completed' });
+    expect((await list())[0]).toMatchObject({ key: 'movie:438631', status: 'completed', services: { simkl: 'completed' } });
+    // A title new to the list shows up with the name and poster the page sent.
+    await call(boss, 'PUT', '/api/watchlist/item', { type: 'movie', id: 27205, status: 'planned', title: 'Inception', year: 2010, poster: 'https://image.tmdb.org/p.jpg' });
+    expect(await summary()).toEqual(['movie:438631 completed', 'movie:27205 planned']);
+    // The details popup reads the same list.
+    expect((await call(boss, 'GET', '/api/watchlist/item?type=movie&id=27205')).json().item).toMatchObject({ title: 'Inception', status: 'planned' });
+
+    // Simkl catches up with the first change; the second is still shown from Mediarr's side.
+    simklState.activity = { all: '2026-11-02T00:00:00Z', removed: '' };
+    simklState.items = [{ status: 'completed', movie: { title: 'Dune', year: 2021, ids: { simkl: 1, tmdb: 438631 } } }];
+    later(120_000);
+    expect(await summary()).toEqual(['movie:438631 completed', 'movie:27205 planned']);
+    // Removing hides it at once too; after 10 minutes only what Simkl says counts.
+    await call(boss, 'DELETE', '/api/watchlist/item?type=movie&id=438631');
+    expect((await list()).map((i) => i.key)).toEqual(['movie:27205']);
+    later(11 * 60_000);
+    expect((await list()).map((i) => i.key)).toEqual(['movie:438631']);
   });
 
   it('writes anime to every connected service, and looks up the AniList entry before removing', async () => {

@@ -9,14 +9,14 @@ import WatchlistMenu from './WatchlistMenu';
 import type { MediaType, WatchItem } from '../api';
 
 /** The title's watchlist status, when the user has a service connected that takes this kind of title. */
-function WatchlistButton({ type, id }: { type: MediaType; id: number }) {
+function WatchlistButton({ type, id, info }: { type: MediaType; id: number; info: { title: string; year: number | null; poster: string | null } }) {
   const q = useQuery({
     queryKey: ['watchlist', 'item', type, id],
     queryFn: () => api.get<{ services: string[]; item: WatchItem | null }>(`/api/watchlist/item?type=${type}&id=${id}`),
     staleTime: 60_000,
   });
   if (!q.data?.services?.length) return null;
-  return <WatchlistMenu type={type} id={id} status={q.data.item?.status ?? null} />;
+  return <WatchlistMenu type={type} id={id} status={q.data.item?.status ?? null} info={info} />;
 }
 
 interface Rating {
@@ -215,7 +215,7 @@ export default function MediaDetails({
                   <span aria-hidden>▶</span> Trailer
                 </button>
               )}
-              {id && <WatchlistButton type={item.type} id={id} />}
+              {id && <WatchlistButton type={item.type} id={id} info={{ title: item.title, year: item.year, poster: item.poster }} />}
             </div>
           </div>
         </div>
