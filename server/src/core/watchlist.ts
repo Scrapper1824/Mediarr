@@ -331,10 +331,25 @@ export function servicesFor(userId: number, type: MediaType): Service[] {
   return out;
 }
 
+/**
+ * Where adding a title or changing its status goes: anime to AniList when it's connected (Simkl only
+ * when it isn't), movies and shows to Simkl. Removing still clears it from every service that can hold it,
+ * so an anime added to Simkl earlier doesn't stay on your list.
+ */
+export function writeServicesFor(userId: number, type: MediaType): Service[] {
+  const all = servicesFor(userId, type);
+  return type === 'anime' && all.includes('anilist') ? ['anilist'] : all;
+}
+
 const simklIds = (type: MediaType, id: number): simkl.SimklIds => (type === 'anime' ? { anilist: id } : { tmdb: id });
 
-async function eachService(userId: number, type: MediaType, run: (service: Service, link: Link) => Promise<void>, change?: Omit<PendingChange, 'services' | 'at'>) {
-  const services = servicesFor(userId, type);
+async function eachService(
+  userId: number,
+  type: MediaType,
+  run: (service: Service, link: Link) => Promise<void>,
+  change?: Omit<PendingChange, 'services' | 'at'>,
+  services = servicesFor(userId, type),
+) {
   if (!services.length) {
     throw Object.assign(new Error(type === 'anime' ? 'Connect Simkl or AniList first (Settings → Watchlists).' : 'Connect Simkl first (Settings → Watchlists).'), {
       statusCode: 400,
@@ -367,6 +382,7 @@ export function setStatus(userId: number, type: MediaType, id: number, status: W
       else await anilist.saveEntry(link.token, id, toAniList(status));
     },
     { type, id, status, info },
+    writeServicesFor(userId, type),
   );
 }
 

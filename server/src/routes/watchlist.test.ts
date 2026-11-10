@@ -290,18 +290,34 @@ describe('per-user watchlists', () => {
     expect((await list()).map((i) => i.key)).toEqual(['movie:438631']);
   });
 
-  it('writes anime to every connected service, and looks up the AniList entry before removing', async () => {
+  it('adds anime only to AniList when it is connected, and removes it everywhere', async () => {
     const { boss } = await users();
     await connectSimkl(boss);
     await call(boss, 'POST', '/api/watchlist/anilist', { token: 'tok-boss-0123456789abcdefghij' });
 
+    calls.length = 0;
+    await call(boss, 'PUT', '/api/watchlist/item', { type: 'anime', id: 21, status: 'planned' });
+    expect(calls.some((c) => c.body?.query?.includes('SaveMediaListEntry') && c.body.variables.status === 'PLANNING')).toBe(true);
+    expect(calls.some((c) => c.url.includes('/sync/add-to-list'))).toBe(false);
+    // Changing its status: AniList only too.
+    await call(boss, 'PUT', '/api/watchlist/item', { type: 'anime', id: 21, status: 'completed' });
+    expect(calls.some((c) => c.url.includes('/sync/'))).toBe(false);
+    // Movies and shows still go to Simkl.
+    await call(boss, 'PUT', '/api/watchlist/item', { type: 'show', id: 95396, status: 'watching' });
+    expect(calls.filter((c) => c.url.includes('/sync/add-to-list')).map((c) => Object.keys(c.body))).toEqual([['shows']]);
+
+    // Removing clears it from both, in case it was on Simkl from before; AniList's entry is looked up first.
+    calls.length = 0;
+    await call(boss, 'DELETE', '/api/watchlist/item?type=anime&id=21');
+    expect(calls.find((c) => c.body?.query?.includes('DeleteMediaListEntry'))!.body.variables).toEqual({ id: 210 });
+    expect(calls.some((c) => c.url.includes('/sync/history/remove') && c.body.shows[0].ids.anilist === 21)).toBe(true);
+  });
+
+  it('adds anime to Simkl when AniList is not connected', async () => {
+    const { boss } = await users();
+    await connectSimkl(boss);
     await call(boss, 'PUT', '/api/watchlist/item', { type: 'anime', id: 21, status: 'planned' });
     expect(calls.some((c) => c.url.includes('/sync/add-to-list') && c.body.shows[0].ids.anilist === 21)).toBe(true);
-    expect(calls.some((c) => c.body?.query?.includes('SaveMediaListEntry') && c.body.variables.status === 'PLANNING')).toBe(true);
-
-    await call(boss, 'DELETE', '/api/watchlist/item?type=anime&id=21');
-    const del = calls.find((c) => c.body?.query?.includes('DeleteMediaListEntry'))!;
-    expect(del.body.variables).toEqual({ id: 210 });
   });
 
   it('refuses bad input and needs a connected service', async () => {

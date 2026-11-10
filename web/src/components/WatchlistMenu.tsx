@@ -5,7 +5,7 @@ import { api, WATCH_STATUSES, watchStatusLabel, type MediaType, type WatchItem, 
 
 /**
  * Status picker for one title on the user's watchlists: pick a status to add/move it, or remove it.
- * Writes to every connected service that supports the title (AniList only takes anime).
+ * Anime goes to AniList when it is connected (Simkl otherwise); movies and shows go to Simkl. Removing clears it everywhere.
  */
 export default function WatchlistMenu({
   type,
