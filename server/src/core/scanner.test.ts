@@ -66,6 +66,30 @@ describe('deciding which title a folder is', () => {
     // Only a partial name match.
     expect(pickMatch({ title: 'Dune', year: 2021 }, [r('Dune: Part Two', 2024)])).toBeNull();
   });
+
+  it('never mixes up a numbered sequel with the original', () => {
+    const one = r('Cyberpunk: Edgerunners', 2022, ['Cyberpunk: Edgerunners'], 1);
+    const two = r('Cyberpunk: Edgerunners 2', 2026, ['Cyberpunk: Edgerunners 2'], 2);
+    const both = [one, two];
+    for (const name of ['Cyberpunk - Edgerunners 2', 'Cyberpunk Edgerunners 2', 'Cyberpunk.Edgerunners.2.1080p.WEB', '[SubsPlease] Cyberpunk Edgerunners 2 (1080p)']) {
+      expect(pickMatch(parseFolderName(name), both, true), name).toBe(two);
+      expect(pickMatch(parseFolderName(name), [one], true), name).toBeNull();
+    }
+    // "S02" / "Season 2" folders of anime are the separate sequel entry.
+    expect(pickMatch(parseFolderName('Cyberpunk Edgerunners S02'), both, true)).toBe(two);
+    expect(pickMatch(parseFolderName('Cyberpunk Edgerunners Season 2'), [one], true)).toBeNull();
+    // The original stays the original.
+    expect(pickMatch(parseFolderName('Cyberpunk - Edgerunners'), both, true)).toBe(one);
+    // Sequel spellings agree: "2nd Season", "II".
+    const frieren2 = r('Sousou no Frieren 2nd Season', 2026, [], 3);
+    expect(pickMatch(parseFolderName('Sousou no Frieren 2'), [r('Sousou no Frieren', 2023, [], 4), frieren2], true)).toBe(frieren2);
+    // Movies too, and a show's "S02" folder is still that show (TMDB keeps seasons inside the show).
+    expect(parseFolderName('Toy Story 2')).toEqual({ title: 'Toy Story 2', year: null });
+    expect(pickMatch(parseFolderName('Toy Story 2'), [r('Toy Story', 1995, [], 5), r('Toy Story 2', 1999, [], 6)])?.anilistId).toBe(6);
+    expect(pickMatch(parseFolderName('Severance S02'), [r('Severance', 2022)])?.title).toBe('Severance');
+    // Numbers that are part of the name aren't sequels.
+    expect(pickMatch(parseFolderName('Mob Psycho 100'), [r('Mob Psycho 100', 2016)], true)?.title).toBe('Mob Psycho 100');
+  });
 });
 
 describe('scanning the library folders', () => {

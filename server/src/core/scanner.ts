@@ -6,7 +6,7 @@ import { db, getEpisodes, getMedia, logHistory, now, type MediaRow, type MediaTy
 import { rootsFor, getSettings } from '../settings.js';
 import { isExtra, isInside, isSample, matchFile, walk } from './importer.js';
 import { addMedia } from './library.js';
-import { normalizeTitle, parseRelease } from './releaseParser.js';
+import { normalizeTitle, parseRelease, splitSequel } from './releaseParser.js';
 
 /**
  * Library scan, like Jellyfin's: title folders already in the library folders are identified on
@@ -21,6 +21,8 @@ const SKIP = /^(\.|@eaDir$|\$RECYCLE\.BIN$|System Volume Information$|lost\+foun
 export interface FolderGuess {
   title: string;
   year: number | null;
+  /** "S02" / "Season 2" in the folder name. For anime that is a separate AniList entry. */
+  season?: number;
   tmdbId?: number;
   anilistId?: number;
 }
@@ -37,6 +39,7 @@ export function parseFolderName(name: string): FolderGuess {
   const plain = /^(.*?)\s*\((\d{4})\)\s*$/.exec(bare);
   let title: string;
   let year: number | null;
+  let season: number | undefined;
   if (plain) {
     title = plain[1];
     year = Number(plain[2]);
@@ -45,25 +48,39 @@ export function parseFolderName(name: string): FolderGuess {
     const p = parseRelease(bare);
     title = p.title || bare;
     year = p.year;
+    // A folder is never one episode: a lone trailing number is part of the title ("Cyberpunk Edgerunners 2", "Toy Story 2").
+    if (p.title && p.absoluteEpisodes.length === 1 && !p.episodes.length) title += ` ${p.absoluteEpisodes[0]}`;
+    if (p.seasons.length === 1 && p.seasons[0] >= 2 && !p.episodes.length) season = p.seasons[0];
   }
   title = title.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return { title, year, ...(tmdbId ? { tmdbId } : {}), ...(anilistId ? { anilistId } : {}) };
+  return { title, year, ...(season ? { season } : {}), ...(tmdbId ? { tmdbId } : {}), ...(anilistId ? { anilistId } : {}) };
 }
 
 /**
  * The search result a folder name confidently refers to, or null (then the user picks it).
  * The name must equal one of the result's titles; with a year, it must agree (±1).
  */
-export function pickMatch(guess: FolderGuess, results: SearchResult[]): SearchResult | null {
-  const want = normalizeTitle(guess.title);
+export function pickMatch(guess: FolderGuess, results: SearchResult[], anime = false): SearchResult | null {
+  const want = titleKey(guess.title, anime ? guess.season : undefined);
   if (!want) return null;
-  const sameName = results.filter((r) => [r.title, ...(r.altTitles ?? [])].some((t) => normalizeTitle(t) === want));
+  const sameName = results.filter((r) => [r.title, ...(r.altTitles ?? [])].some((t) => titleKey(t) === want));
   if (guess.year) {
     const dated = sameName.filter((r) => r.year && Math.abs(r.year - guess.year!) <= 1);
     return dated[0] ?? null;
   }
   // No year: only when the name is unambiguous.
   return sameName.length === 1 ? sameName[0] : null;
+}
+
+/**
+ * A title plus its sequel number, so "X 2", "X II", "X Season 2" and "X 2nd Season" are the same title and
+ * "X" (sequel 1) never equals any of them. `season` is a separate "S02" hint from the folder name.
+ */
+function titleKey(title: string, season?: number): string {
+  const sq = splitSequel(title);
+  const base = normalizeTitle(sq ? sq.base : title);
+  if (!base) return '';
+  return `${base}#${season ?? sq?.n ?? 1}`;
 }
 
 const SEARCH: Record<MediaType, (q: string) => Promise<SearchResult[]>> = { movie: searchMovies, show: searchShows, anime: searchAnime };
@@ -218,7 +235,7 @@ export async function scanLibrary(opts: { delayMs?: number } = {}): Promise<Scan
         } else {
           const results = await SEARCH[f.type](guess.title);
           await sleep(opts.delayMs ?? (f.type === 'anime' ? 800 : 250)); // stay well under TMDB/AniList rate limits
-          const match = pickMatch(guess, results);
+          const match = pickMatch(guess, results, f.type === 'anime');
           if (match) ids = f.type === 'anime' ? { anilistId: match.anilistId } : { tmdbId: match.tmdbId };
         }
         if (!ids) {
