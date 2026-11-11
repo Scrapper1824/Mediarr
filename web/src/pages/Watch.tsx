@@ -155,6 +155,25 @@ function saveCaptions(user: string | undefined, kind: AudioKind, choice: Caption
   }
 }
 
+/** Auto-skip of intros and credits: off unless you turned it on (this account, this browser). */
+const autoSkipKey = (user: string) => `mediarr.autoskip.v1:${user}`;
+function loadAutoSkip(user: string | undefined): boolean {
+  if (!user) return false;
+  try {
+    return localStorage.getItem(autoSkipKey(user)) === 'on';
+  } catch {
+    return false;
+  }
+}
+function saveAutoSkip(user: string | undefined, on: boolean) {
+  if (!user) return;
+  try {
+    localStorage.setItem(autoSkipKey(user), on ? 'on' : 'off');
+  } catch {
+    // Storage blocked: the switch still works for this episode.
+  }
+}
+
 /** The subtitle track to start with: your remembered choice when it applies, else the usual pick. */
 function startSubtitle(info: PlayInfo, audio: number | null, user: string | undefined): number | null {
   const choice = loadCaptions(user)[audioKind(info, audio)];
@@ -219,6 +238,12 @@ function Player({ info }: { info: PlayInfo }) {
   const [audio, setAudio] = useState<number | null>(() => pickAudio(info));
   const user = useAuth().data?.user?.username;
   const [subtitle, setSubtitle] = useState<number | null>(() => startSubtitle(info, pickAudio(info), user));
+  const [autoSkip, setAutoSkip] = useState(() => loadAutoSkip(user));
+  /** When you last moved the playhead yourself: landing inside an intro on purpose is never undone. */
+  const lastUserSeek = useRef(0);
+  /** Intros/credits already skipped (or let play) this episode, so each is handled once. */
+  const skipHandled = useRef(new Set<string>());
+  const [skipNote, setSkipNote] = useState<{ text: string; back: number } | null>(null);
   const [quality, setQuality] = useState<Quality>('auto');
   const [resumeAsked, setResumeAsked] = useState(info.position > 30);
   // A new object each time, so starting again at the same second still restarts the stream.
@@ -390,7 +415,8 @@ function Player({ info }: { info: PlayInfo }) {
     if (v.paused) v.play().catch(() => undefined);
     else v.pause();
   };
-  const seek = (t: number) => {
+  const seek = (t: number, byUser = true) => {
+    if (byUser) lastUserSeek.current = Date.now();
     const v = video.current!;
     const to = Math.min(Math.max(0, t), duration - 0.5);
     v.currentTime = to;
@@ -532,6 +558,35 @@ function Player({ info }: { info: PlayInfo }) {
     else seek(credits!.end);
   };
 
+  // Auto-skip: when playback reaches an intro or the credits, skip it once. If you jumped into it
+  // yourself (to watch it), it's left alone.
+  useEffect(() => {
+    if (!autoSkip || !playing || resumeAsked || countdown !== null || scrub !== null) return;
+    const seg = inIntro ? intro! : inCredits ? credits! : null;
+    if (!seg) return;
+    const kind = inIntro ? 'intro' : 'credits';
+    const key = `${kind}:${seg.start}`;
+    if (skipHandled.current.has(key)) return;
+    skipHandled.current.add(key);
+    if (Date.now() - lastUserSeek.current < 2500) return;
+    if (kind === 'credits' && info.next) {
+      goNext();
+      return;
+    }
+    seek(seg.end, false);
+    setSkipNote({ text: kind === 'intro' ? 'Skipped the intro' : 'Skipped the credits', back: seg.start });
+  });
+  useEffect(() => {
+    if (!skipNote) return;
+    const t = setTimeout(() => setSkipNote(null), 5000);
+    return () => clearTimeout(t);
+  }, [skipNote]);
+  const toggleAutoSkip = () => {
+    const on = !autoSkip;
+    setAutoSkip(on);
+    saveAutoSkip(user, on);
+  };
+
   // Thumbnail preview over the seek bar (hover, or while dragging).
   const [hover, setHover] = useState<{ t: number; x: number } | null>(null);
   const seekBox = useRef<HTMLDivElement>(null);
@@ -636,7 +691,20 @@ function Player({ info }: { info: PlayInfo }) {
         </div>
       )}
 
-      {(inIntro || inCredits) && countdown === null && !resumeAsked && (
+      {skipNote && (
+        <div className="watch-skip-note" role="status">
+          {skipNote.text}
+          <button
+            onClick={() => {
+              seek(skipNote.back);
+              setSkipNote(null);
+            }}
+          >
+            Watch it
+          </button>
+        </div>
+      )}
+      {(inIntro || inCredits) && countdown === null && !resumeAsked && !(autoSkip && playing && Date.now() - lastUserSeek.current >= 2500) && (
         <button className="watch-skip" onClick={inIntro ? () => seek(intro!.end) : skipCredits}>
           {inIntro ? 'Skip intro' : info.next ? 'Next episode' : 'Skip credits'} <span aria-hidden>⏭</span>
         </button>
@@ -806,6 +874,13 @@ function Player({ info }: { info: PlayInfo }) {
                 {menuRow('Audio', audioLabel, 'audio')}
                 {menuRow('Subtitles', subtitleLabel, 'subtitles')}
                 {menuRow('Quality', QUALITY_LABEL[quality], 'quality')}
+                <button className="watch-row" role="menuitemcheckbox" aria-checked={autoSkip} onClick={toggleAutoSkip}>
+                  <span>
+                    Auto-skip intro &amp; credits
+                    <small className="watch-row-hint">{info.next ? 'Credits go straight to the next episode' : 'Jumps past them when they start'}</small>
+                  </span>
+                  <span className={`watch-switch${autoSkip ? ' on' : ''}`} aria-hidden />
+                </button>
                 {mode && (
                   <div className="watch-menu-note">
                     {mode.mode === 'direct' ? 'Playing the original file — no conversion needed.' : `Converting for this browser: ${mode.reason.charAt(0).toLowerCase()}${mode.reason.slice(1)}.`}

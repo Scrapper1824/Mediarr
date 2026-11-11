@@ -659,6 +659,20 @@ select.input option { background: var(--raised); }
 .watch-menu button:hover, .watch-menu button:focus-visible { background: #2a2a2a; outline: none; }
 .watch-menu-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8a8a; padding: 10px 12px 6px; }
 .watch-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 12px; font-size: 15px; }
+.watch-row > span:first-child { display: flex; flex-direction: column; gap: 2px; }
+.watch-row-hint { color: #8a8a8a; font-size: 12px; }
+.watch-switch { position: relative; flex-shrink: 0; width: 36px; height: 21px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); transition: background 0.18s; }
+.watch-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left 0.18s; }
+.watch-switch.on { background: var(--accent); }
+.watch-switch.on::after { left: 18px; }
+.watch-skip-note {
+  position: absolute; right: 28px; bottom: 112px; z-index: 3; display: flex; align-items: center; gap: 12px;
+  padding: 9px 10px 9px 16px; border-radius: 10px; font-size: 14px; color: #fff;
+  background: rgba(20, 20, 20, 0.82); border: 1px solid rgba(255, 255, 255, 0.25); backdrop-filter: blur(6px); animation: skip-in 0.25s ease-out;
+}
+.watch-skip-note button { background: rgba(255, 255, 255, 0.14); border: none; color: #fff; font: inherit; font-weight: 600; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+.watch-skip-note button:hover { background: rgba(255, 255, 255, 0.26); }
+@media (max-width: 640px) { .watch-skip-note { right: 14px; bottom: 100px; } }
 .watch-row-value { color: #9a9a9a; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
 .watch-back { display: flex; align-items: center; gap: 8px; padding: 11px 12px; font-size: 15px; font-weight: 600; border-bottom: 1px solid #2c2c2c !important; border-radius: 9px 9px 0 0 !important; margin-bottom: 4px; }
 .watch-option { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px 9px 34px; position: relative; font-size: 14px; }
