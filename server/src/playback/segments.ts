@@ -17,9 +17,29 @@ export const POINT_SECONDS = 4096 / 11025 / 3;
 const INTRO_CHAPTER = /^(?:op(?:ening)?(?:\s*(?:song|theme|credits))?|intro(?:duction)?|title sequence|main titles?)(?:\s*\d+)?$/i;
 const CREDITS_CHAPTER = /^(?:ed|ending(?:\s*(?:song|theme|credits))?|end(?:ing)?\s*credits|credits|outro|closing(?:\s*credits)?)(?:\s*\d+)?$/i;
 
+/**
+ * Puts each section where it belongs by position: something in the second half of an episode is the
+ * credits, whatever it's called. First episodes often play the opening song over the end credits, and
+ * releases name that chapter "Opening"; it must not become a "Skip intro" at 23 minutes.
+ */
+export function placeSegments(segs: Partial<Record<SegmentKind, Segment>>, duration: number | null | undefined): Partial<Record<SegmentKind, Segment>> {
+  if (!duration || duration <= 0) return segs;
+  const half = duration / 2;
+  const out: Partial<Record<SegmentKind, Segment>> = {};
+  for (const kind of ['intro', 'credits'] as const) {
+    const seg = segs[kind];
+    if (!seg) continue;
+    const where: SegmentKind = seg.start >= half ? 'credits' : seg.end <= half ? 'intro' : kind;
+    // Its own kind wins a tie (an intro and credits both in the same half: keep the one named for it).
+    if (!out[where] || where === kind) out[where] = seg;
+  }
+  return out;
+}
+
 /** Intro/credits from chapter names ("Opening", "OP", "Ending", "Credits"…), when the release has them. */
 export function segmentsFromChapters(chapters: Chapter[]): Partial<Record<SegmentKind, Segment>> {
   const out: Partial<Record<SegmentKind, Segment>> = {};
+  const length = chapters.reduce((m, c) => Math.max(m, c.end), 0);
   for (const c of chapters) {
     const title = (c.title ?? '').trim();
     const len = c.end - c.start;
@@ -27,7 +47,7 @@ export function segmentsFromChapters(chapters: Chapter[]): Partial<Record<Segmen
     if (!out.intro && INTRO_CHAPTER.test(title)) out.intro = { start: c.start, end: c.end };
     else if (!out.credits && CREDITS_CHAPTER.test(title)) out.credits = { start: c.start, end: c.end };
   }
-  return out;
+  return placeSegments(out, length);
 }
 
 // ---- Audio fingerprints ----
@@ -147,9 +167,10 @@ export async function fingerprint(file: string, from: number, seconds: number): 
 
 // ---- Stored results ----
 
-export function getSegments(file: string): Partial<Record<SegmentKind, Segment>> {
+/** Saved intro/credits for a file; with its length, sections saved before placeSegments existed are put right too. */
+export function getSegments(file: string, duration?: number | null): Partial<Record<SegmentKind, Segment>> {
   const rows = db.prepare('SELECT kind, start, end FROM media_segments WHERE file = ?').all(file) as { kind: SegmentKind; start: number; end: number }[];
-  return Object.fromEntries(rows.map((r) => [r.kind, { start: r.start, end: r.end }]));
+  return placeSegments(Object.fromEntries(rows.map((r) => [r.kind, { start: r.start, end: r.end }])), duration);
 }
 
 function saveSegment(file: string, kind: SegmentKind, seg: Segment, source: 'chapters' | 'audio') {

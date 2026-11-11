@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import Hls from 'hls.js';
 import JASSUB from 'jassub';
 import { api } from '../api';
+import { useAuth } from '../components/AuthGate';
 import { detectCaps } from '../player/caps';
 
 interface Track {
@@ -121,6 +122,48 @@ function pickSubtitle(info: PlayInfo, audio: number | null): number | null {
   return (eng.find((s) => !signs(s) && s.isDefault) ?? eng.find((s) => !signs(s)) ?? info.subtitles.find((s) => s.isDefault) ?? info.subtitles[0])?.order ?? null;
 }
 
+/**
+ * Your last caption choice, remembered in this browser for your account. Kept apart for English audio
+ * (dubs) and other audio, so turning captions off on a dub doesn't also turn them off for subbed shows.
+ */
+interface CaptionChoice {
+  on: boolean;
+  language: string | null;
+  signsOnly: boolean;
+  /** The track's name ("SDH", "Full"…), to pick the same kind again when there's a match. */
+  title?: string | null;
+}
+type AudioKind = 'english' | 'other';
+const captionKey = (user: string) => `mediarr.captions.v1:${user}`;
+const isSigns = (s: SubTrack) => s.forced || /sign|song/i.test(s.title ?? '');
+const audioKind = (info: PlayInfo, audio: number | null): AudioKind => (isEnglish(info.audio.find((a) => a.order === audio)?.language ?? null) ? 'english' : 'other');
+
+function loadCaptions(user: string | undefined): Partial<Record<AudioKind, CaptionChoice>> {
+  if (!user) return {};
+  try {
+    return JSON.parse(localStorage.getItem(captionKey(user)) ?? '{}') ?? {};
+  } catch {
+    return {};
+  }
+}
+function saveCaptions(user: string | undefined, kind: AudioKind, choice: CaptionChoice) {
+  if (!user) return;
+  try {
+    localStorage.setItem(captionKey(user), JSON.stringify({ ...loadCaptions(user), [kind]: choice }));
+  } catch {
+    // Private window or storage blocked: the choice just isn't remembered.
+  }
+}
+
+/** The subtitle track to start with: your remembered choice when it applies, else the usual pick. */
+function startSubtitle(info: PlayInfo, audio: number | null, user: string | undefined): number | null {
+  const choice = loadCaptions(user)[audioKind(info, audio)];
+  if (!choice) return pickSubtitle(info, audio);
+  if (!choice.on) return null;
+  const same = info.subtitles.filter((t) => (t.language ?? null) === choice.language && isSigns(t) === choice.signsOnly);
+  return (same.find((t) => choice.title && t.title === choice.title) ?? same.find((t) => t.isDefault) ?? same[0])?.order ?? pickSubtitle(info, audio);
+}
+
 const clock = (sec: number) => {
   if (!Number.isFinite(sec)) return '0:00';
   const s = Math.max(0, Math.floor(sec));
@@ -174,7 +217,8 @@ function Player({ info }: { info: PlayInfo }) {
   const base = `/api/play/${info.kind}/${info.id}`;
 
   const [audio, setAudio] = useState<number | null>(() => pickAudio(info));
-  const [subtitle, setSubtitle] = useState<number | null>(() => pickSubtitle(info, pickAudio(info)));
+  const user = useAuth().data?.user?.username;
+  const [subtitle, setSubtitle] = useState<number | null>(() => startSubtitle(info, pickAudio(info), user));
   const [quality, setQuality] = useState<Quality>('auto');
   const [resumeAsked, setResumeAsked] = useState(info.position > 30);
   // A new object each time, so starting again at the same second still restarts the stream.
@@ -329,6 +373,9 @@ function Player({ info }: { info: PlayInfo }) {
     const isBurned = info.subtitles.find((s) => s.order === order && !s.text);
     setSubtitle(order);
     setMenu(null);
+    // Remembered for next time (this kind of audio, this account, this browser).
+    const track = info.subtitles.find((t) => t.order === order);
+    saveCaptions(user, audioKind(info, audio), track ? { on: true, language: track.language ?? null, signsOnly: isSigns(track), title: track.title ?? null } : { on: false, language: null, signsOnly: false });
     // Picture subtitles are drawn into the video, so the stream has to change.
     if (wasBurned || isBurned) restartHere();
   };

@@ -121,7 +121,7 @@ export async function playRoutes(app: FastifyInstance) {
       subtitles: probe.subtitles.map((s) => ({ order: s.order, language: s.language, title: s.title, codec: s.codec, text: s.text, isDefault: s.isDefault, forced: s.forced })),
       hasFonts: probe.fonts.length > 0,
       /** Intro/credits for the Skip buttons (found in the background; may still be on the way). */
-      segments: getSettings().introDetection ? getSegments(p.file) : {},
+      segments: getSettings().introDetection ? getSegments(p.file, probe.duration) : {},
       trickplay: getSettings().trickplay ? trickplayManifest(p.file) : null,
       pending: workPending(p.file, p.media.id, p.episode?.season ?? null),
       position: progress.watched ? 0 : progress.position,
@@ -206,8 +206,9 @@ export async function playRoutes(app: FastifyInstance) {
   app.get<{ Params: { kind: string; id: string } }>('/api/play/:kind/:id/extras', async (req) => {
     const p = playable(req.params.kind, req.params.id);
     const s = getSettings();
+    const probe = await probeFile(p.file).catch(() => null); // cached; gives the length for placing sections
     return {
-      segments: s.introDetection ? getSegments(p.file) : {},
+      segments: s.introDetection ? getSegments(p.file, probe?.duration) : {},
       trickplay: s.trickplay ? trickplayManifest(p.file) : null,
       /** Still being worked out (the player shows "Making previews…" meanwhile). */
       pending: workPending(p.file, p.media.id, p.episode?.season ?? null),

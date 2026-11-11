@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findSharedAudio, POINT_SECONDS, segmentsFromChapters } from './segments.js';
+import { findSharedAudio, placeSegments, POINT_SECONDS, segmentsFromChapters } from './segments.js';
 
 /** Deterministic pseudo-random 32-bit values. */
 function rng(seed: number) {
@@ -78,6 +78,37 @@ describe('intro and credits from chapters', () => {
       intro: { start: 0, end: 85 },
       credits: { start: 5000, end: 5200 },
     });
+  });
+
+  it('treats an opening song played over the end credits as the credits', () => {
+    // First episodes often have no opening at the start and play it at the end; releases still call it "Opening".
+    expect(
+      segmentsFromChapters([
+        { start: 0, end: 1300, title: 'Episode' },
+        { start: 1387, end: 1452, title: 'Opening' },
+      ]),
+    ).toEqual({ credits: { start: 1387, end: 1452 } });
+    // A real ending chapter still wins over a late "Opening".
+    expect(
+      segmentsFromChapters([
+        { start: 0, end: 90, title: 'Prologue' },
+        { start: 1200, end: 1290, title: 'Opening' },
+        { start: 1290, end: 1380, title: 'Ending' },
+        { start: 1380, end: 1452, title: 'Preview' },
+      ]),
+    ).toEqual({ credits: { start: 1290, end: 1380 } });
+  });
+
+  it('puts saved sections right by where they are in the episode', () => {
+    // Saved as an intro at 23:07 of a 24:12 episode (before this rule existed): it's the credits.
+    expect(placeSegments({ intro: { start: 1387, end: 1440 } }, 1452)).toEqual({ credits: { start: 1387, end: 1440 } });
+    // An ordinary intro and credits stay as they are.
+    expect(placeSegments({ intro: { start: 60, end: 150 }, credits: { start: 1300, end: 1390 } }, 1452)).toEqual({
+      intro: { start: 60, end: 150 },
+      credits: { start: 1300, end: 1390 },
+    });
+    // Without a length nothing is moved.
+    expect(placeSegments({ intro: { start: 1387, end: 1440 } }, null)).toEqual({ intro: { start: 1387, end: 1440 } });
   });
 
   it('ignores chapters that are just numbered or implausibly long', () => {

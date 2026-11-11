@@ -65,7 +65,7 @@ describe.skipIf(!tools)('intro detection and thumbnails with real FFmpeg', () =>
 
   it('finds each episode’s intro, from the audio or from chapters', async () => {
     await analyseSeason(mediaId, 1);
-    const [e1, e2, e3] = files.map(getSegments);
+    const [e1, e2, e3] = files.map((f) => getSegments(f));
     // Matched by audio: within a couple of seconds of where the song really is.
     expect(Math.abs(e1.intro!.start - 20)).toBeLessThan(2);
     expect(Math.abs(e1.intro!.end - 60)).toBeLessThan(3);
