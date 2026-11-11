@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chevron from './Chevron';
+import { useAmbient } from '../ambient';
 import { shortEp, sharp, type HomeFeatured } from '../home';
 
 const ROTATE_MS = 9000;
@@ -16,6 +17,8 @@ export default function HomeHero({ items, loading }: { items: HomeFeatured[]; lo
   const [loaded, setLoaded] = useState<Set<string>>(() => new Set());
   const count = items.length;
   const go = useCallback((i: number) => setIndex(((i % count) + count) % count), [count]);
+  // The page glows in the colours of the title on screen.
+  useAmbient(count ? items[index % count].poster : null);
 
   useEffect(() => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

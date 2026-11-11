@@ -7,7 +7,9 @@ import ReleasesDialog, { type ReleaseScope } from '../components/ReleasesDialog'
 import Spinner from '../components/Spinner';
 import { useIsAdmin } from '../components/AuthGate';
 import SuggestionsPanel from '../components/SuggestionsPanel';
-import { StatusBadge } from './Library';
+import Icon from '../components/Icon';
+import { useAmbient } from '../ambient';
+import { sharp } from '../home';
 
 /** Live status of the background search: a spinner while it runs, then what it found. */
 function SearchBanner({ m }: { m: MediaDetail }) {
@@ -42,6 +44,25 @@ function EpisodeStatus({ e }: { e: Episode }) {
   if (!e.aired) return <span className="badge muted">Unaired</span>;
   return <span className={`badge ${e.monitored ? 'warn' : 'muted'}`}>Missing</span>;
 }
+
+/** The description, four lines at most until you ask for the rest. */
+function Overview({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  const long = text.length > 320;
+  return (
+    <div className={`title-overview${all || !long ? '' : ' clamped'}`}>
+      <p>{text}</p>
+      {long && (
+        <button type="button" className="more-btn" onClick={() => setAll((v) => !v)} aria-expanded={all}>
+          {all ? 'Less' : 'More'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** "NOT_YET_RELEASED" → "Not yet released"; TMDB's own wording ("Returning Series") stays. */
+const humanStatus = (s: string) => (/^[A-Z_]+$/.test(s) ? (s.charAt(0) + s.slice(1).toLowerCase()).replace(/_/g, ' ') : s);
 
 /** "S01E05" → "E5", or "S2 E5" when the series has more than one season. */
 const episodeButtonLabel = (label: string, manySeasons: boolean) => {
@@ -127,6 +148,8 @@ export default function Detail() {
     },
   });
 
+  useAmbient(q.data?.poster);
+
   if (q.isLoading) return <div className="page loading">Loading…</div>;
   if (q.error || !q.data) return <div className="page error-box">{(q.error as Error)?.message ?? 'Not found'}</div>;
   const m = q.data;
@@ -149,85 +172,96 @@ export default function Detail() {
   };
 
   return (
-    <div className="page">
-      <div className="hero">
-        <Poster src={m.poster} title={m.title} />
-        <div className="hero-info">
-          <div className="eyebrow">{m.type === 'movie' ? 'Movie' : m.type === 'show' ? 'TV Show' : 'Anime'}</div>
-          <h1>
-            {m.title} {m.year && <span className="muted">({m.year})</span>}
-          </h1>
-          <div className="row wrap">
-            <StatusBadge m={m} />
-            {m.status && <span className="badge muted">{m.status}</span>}
-            {m.type === 'movie' && m.release_date && <span className="badge muted">Released {formatDate(m.release_date)}</span>}
-          </div>
-          <p className="overview">{m.overview}</p>
-          <div className="path muted small" title="Library folder">
-            📁 {m.root_folder}\{m.folder_name}
-          </div>
-
-          <div className="row wrap controls">
-            <label
-              className="switch"
-              title={
-                m.type === 'movie'
-                  ? 'Keep searching until the movie is downloaded'
-                  : 'Automatically download new episodes and new seasons as they air'
-              }
-            >
-              <input type="checkbox" checked={m.monitored} onChange={(e) => patch.mutate({ monitored: e.target.checked })} />
-              <span className="slider" />
-              <span>{m.type === 'movie' ? 'Keep looking' : 'Get new episodes'}</span>
-            </label>
-            {m.type === 'anime' && (
-              <div className="segmented small">
-                {(['sub', 'dub'] as const).map((a) => (
-                  <button key={a} className={m.anime_audio === a ? 'on' : ''} onClick={() => patch.mutate({ animeAudio: a })}>
-                    {a === 'sub' ? 'Sub' : 'Dub'}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="row wrap">
-            {m.type === 'movie' && m.file_path && (
-              <Link className="btn primary play-btn" to={`/watch/movie/${m.id}`}>
-                ▶ {watched.data?.['0']?.position && !watched.data['0'].watched ? 'Resume' : 'Play'}
-              </Link>
-            )}
-            {upNext && (
-              <Link className="btn primary play-btn" to={`/watch/episode/${upNext.id}`} title={upNext.episodeTitle ?? undefined}>
-                ▶ {upNext.resume ? 'Resume' : 'Play'} {episodeButtonLabel(upNext.label ?? '', m.episodes.some((e) => e.season > 1))}
-                {upNext.resume && upNext.minutesLeft ? <span className="play-btn-left"> · {upNext.minutesLeft} min left</span> : null}
-              </Link>
-            )}
-            <button className={`btn${(m.type === 'movie' && m.file_path) || upNext ? '' : ' primary'}`} disabled={searching} onClick={() => search.mutate({})}>
-              {searching && <Spinner />}
-              {searching ? 'Searching…' : m.type === 'movie' ? 'Search' : 'Search missing'}
-            </button>
-            {m.type === 'movie' && (
-              <button className="btn" onClick={() => setReleases({ mediaId: m.id, label: m.title })}>
-                Interactive search
-              </button>
-            )}
-            <button className="btn ghost" disabled={metaRefresh.isPending} onClick={() => metaRefresh.mutate()}>
-              Refresh info
-            </button>
-            {isAdmin && (
-              <button
-                className="btn ghost danger"
-                onClick={() => confirm(`Remove ${m.title} from Mediarr? Files on disk are kept.`) && remove.mutate()}
-              >
-                Remove
-              </button>
-            )}
-          </div>
-          {notice && <div className="notice">{notice}</div>}
-          {m.type === 'movie' && m.file_path && <div className="muted small">File: {m.file_path}</div>}
+    <div className="page page-wide title-page">
+      <section className={`title-hero${m.backdrop ? '' : ' no-backdrop'}`}>
+        <div className="title-hero-art" aria-hidden>
+          {m.backdrop ? <img src={sharp(m.backdrop)} alt="" /> : m.poster ? <img className="soft" src={m.poster} alt="" /> : null}
         </div>
-      </div>
+        <div className="title-hero-inner">
+          <Poster src={m.poster} title={m.title} />
+          <div className="title-hero-info">
+            <h1 className="title-name">{m.title}</h1>
+            <div className="title-meta">
+              {[
+                m.year ? String(m.year) : null,
+                m.type === 'movie' ? 'Movie' : m.type === 'show' ? 'TV show' : 'Anime',
+                m.type !== 'movie' && m.episodeCount > 0
+                  ? m.episodeFileCount >= m.episodeCount
+                    ? `All ${m.episodeCount} episodes`
+                    : `${m.episodeFileCount} of ${m.episodeCount} episodes`
+                  : null,
+                m.type === 'movie' && m.release_date ? `Released ${formatDate(m.release_date)}` : null,
+                m.status ? humanStatus(m.status) : null,
+              ]
+                .filter(Boolean)
+                .map((t, i) => (
+                  <span key={i}>{t}</span>
+                ))}
+              {m.downloading && <span className="badge info">Downloading</span>}
+            </div>
+            <div className="title-actions">
+              {m.play ? (
+                <Link className="hero-play" to={`/watch/${m.play.kind}/${m.play.id}`} title={m.play.episodeTitle ?? undefined}>
+                  <Icon name="play" size={18} filled /> {m.play.resume ? 'Resume' : 'Play'}
+                  {m.play.kind === 'episode' && m.play.label ? ` ${episodeButtonLabel(m.play.label, m.episodes.some((e) => e.season > 1))}` : ''}
+                  {m.play.resume && m.play.minutesLeft ? <span className="hero-play-left">· {m.play.minutesLeft} min left</span> : null}
+                </Link>
+              ) : (
+                <button className="hero-play" disabled={searching} onClick={() => search.mutate({})}>
+                  {searching ? <Spinner /> : <Icon name="search" size={18} />} {searching ? 'Searching…' : m.type === 'movie' ? 'Find a download' : 'Find episodes'}
+                </button>
+              )}
+            </div>
+            {m.overview && <Overview text={m.overview} />}
+          </div>
+        </div>
+      </section>
+
+      <div className="title-body">
+        <section className="manage-bar" aria-label="Downloading">
+          <label
+            className="switch"
+            title={m.type === 'movie' ? 'Keep searching until the movie is downloaded' : 'Automatically download new episodes and new seasons as they air'}
+          >
+            <input type="checkbox" checked={m.monitored} onChange={(e) => patch.mutate({ monitored: e.target.checked })} />
+            <span className="slider" />
+            <span>{m.type === 'movie' ? 'Keep looking for it' : 'Get new episodes'}</span>
+          </label>
+          {m.type === 'anime' && (
+            <div className="segmented small" role="group" aria-label="Audio">
+              {(['sub', 'dub'] as const).map((a) => (
+                <button key={a} className={m.anime_audio === a ? 'on' : ''} onClick={() => patch.mutate({ animeAudio: a })}>
+                  {a === 'sub' ? 'Sub' : 'Dub'}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="manage-spacer" />
+          {m.play && (
+            <button className="btn small" disabled={searching} onClick={() => search.mutate({})}>
+              {searching ? <Spinner /> : <Icon name="search" size={15} />} {searching ? 'Searching…' : m.type === 'movie' ? 'Search again' : 'Search missing'}
+            </button>
+          )}
+          {m.type === 'movie' && (
+            <button className="btn small" onClick={() => setReleases({ mediaId: m.id, label: m.title })}>
+              Choose a release
+            </button>
+          )}
+          <button className="btn small ghost" disabled={metaRefresh.isPending} onClick={() => metaRefresh.mutate()}>
+            <Icon name="refresh" size={15} /> Refresh info
+          </button>
+          {isAdmin && (
+            <button className="btn small ghost danger" onClick={() => confirm(`Remove ${m.title} from Mediarr? Files on disk are kept.`) && remove.mutate()}>
+              <Icon name="trash" size={15} /> Remove
+            </button>
+          )}
+        </section>
+        {isAdmin && (
+          <div className="title-path muted small" title="Library folder">
+            <Icon name="folder" size={14} /> {m.type === 'movie' && m.file_path ? m.file_path : `${m.root_folder}\\${m.folder_name}`}
+          </div>
+        )}
+        {notice && <div className="notice">{notice}</div>}
 
       <SearchBanner m={m} />
       <SuggestionsPanel suggestions={m.suggestions ?? []} />
@@ -365,6 +399,7 @@ export default function Detail() {
       )}
 
       {releases && <ReleasesDialog scope={releases} onClose={() => setReleases(null)} />}
+      </div>
     </div>
   );
 }

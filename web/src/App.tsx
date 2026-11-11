@@ -13,20 +13,37 @@ import SettingsPage from './pages/Settings';
 import SearchAlerts from './components/SearchAlerts';
 import { useAuth, useIsAdmin } from './components/AuthGate';
 import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
+import Icon, { type IconName } from './components/Icon';
 
 // The player (hls.js + subtitle renderer) only loads when something is played.
 const Watch = lazy(() => import('./pages/Watch'));
 
-const NAV = [
-  { to: '/', label: 'Home', icon: '⌂' },
-  { to: '/discover', label: 'Discover', icon: '⌕' },
-  { to: '/movies', label: 'Movies', icon: '◐' },
-  { to: '/shows', label: 'Shows', icon: '▤' },
-  { to: '/anime', label: 'Anime', icon: '✦' },
-  { to: '/watchlist', label: 'Watchlist', icon: '☆' },
-  { to: '/queue', label: 'Queue', icon: '↓' },
-  { to: '/history', label: 'History', icon: '◷' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: IconName;
+}
+/** What you watch first; finding and fetching more second. */
+const NAV: { heading: string | null; items: NavItem[] }[] = [
+  {
+    heading: null,
+    items: [
+      { to: '/', label: 'Home', icon: 'home' },
+      { to: '/movies', label: 'Movies', icon: 'movie' },
+      { to: '/shows', label: 'Shows', icon: 'show' },
+      { to: '/anime', label: 'Anime', icon: 'anime' },
+      { to: '/watchlist', label: 'Watchlist', icon: 'watchlist' },
+    ],
+  },
+  {
+    heading: 'Get more',
+    items: [
+      { to: '/discover', label: 'Discover', icon: 'discover' },
+      { to: '/queue', label: 'Downloads', icon: 'queue' },
+      { to: '/history', label: 'History', icon: 'history' },
+      { to: '/settings', label: 'Settings', icon: 'settings' },
+    ],
+  },
 ];
 
 export default function App() {
@@ -64,12 +81,22 @@ function Shell() {
           <span>Mediarr</span>
         </div>
         <nav>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-              <span className="nav-icon">{n.icon}</span>
-              <span className="nav-label">{n.to === '/settings' && !isAdmin ? 'Account' : n.label}</span>
-              {n.to === '/queue' && activeCount > 0 && <span className="nav-badge">{activeCount}</span>}
-            </NavLink>
+          {NAV.map((group, gi) => (
+            <div key={gi} className="nav-group">
+              {group.heading && <div className="nav-heading">{group.heading}</div>}
+              {group.items.map((n) => {
+                const account = n.to === '/settings' && !isAdmin;
+                return (
+                  <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+                    <span className="nav-icon">
+                      <Icon name={account ? 'account' : n.icon} />
+                    </span>
+                    <span className="nav-label">{account ? 'Account' : n.label}</span>
+                    {n.to === '/queue' && activeCount > 0 && <span className="nav-badge">{activeCount}</span>}
+                  </NavLink>
+                );
+              })}
+            </div>
           ))}
         </nav>
         {isAdmin && update.data?.available && update.data.latest && (
@@ -82,12 +109,15 @@ function Shell() {
           </button>
         )}
         <div className="sidebar-user">
-          <span className="muted small" title="Signed in">
-            {auth.data?.user?.username}
-            {isAdmin && <span className="badge muted role-badge">admin</span>}
+          <span className="avatar" aria-hidden>
+            {(auth.data?.user?.username ?? '?').slice(0, 1).toUpperCase()}
           </span>
-          <button className="btn small ghost" onClick={() => logout.mutate()} disabled={logout.isPending}>
-            Sign out
+          <span className="sidebar-who" title="Signed in">
+            <strong>{auth.data?.user?.username}</strong>
+            <span>{isAdmin ? 'Admin' : 'Viewer'}</span>
+          </span>
+          <button className="icon-btn" onClick={() => logout.mutate()} disabled={logout.isPending} title="Sign out" aria-label="Sign out">
+            <Icon name="signout" size={18} />
           </button>
         </div>
       </aside>

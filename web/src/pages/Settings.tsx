@@ -9,6 +9,7 @@ import SystemPanel from '../components/SystemPanel';
 import FolderList, { type FolderSpace } from '../components/FolderList';
 import LibraryScanPanel from '../components/LibraryScanPanel';
 import GpuTestPanel from '../components/GpuTestPanel';
+import Icon, { type IconName } from '../components/Icon';
 import { useIsAdmin } from '../components/AuthGate';
 import UpdateDialog, { useUpdateInfo, type UpdateInfo } from '../components/UpdateDialog';
 
@@ -66,16 +67,16 @@ export default function SettingsPage() {
 
 type SectionId = 'overview' | 'library' | 'connections' | 'downloading' | 'playback' | 'watchlists' | 'users' | 'system' | 'account';
 
-const SECTIONS: { id: SectionId; label: string; icon: string; blurb: string }[] = [
-  { id: 'overview', label: 'Overview', icon: '◎', blurb: 'What’s set up, and what still needs attention.' },
-  { id: 'library', label: 'Library', icon: '▣', blurb: 'Where movies, shows and anime are kept.' },
-  { id: 'connections', label: 'Connections', icon: '⇄', blurb: 'The services Mediarr talks to: metadata, indexers and your download client.' },
-  { id: 'downloading', label: 'Downloading', icon: '↓', blurb: 'Which releases to pick, and how often to look for new episodes.' },
-  { id: 'playback', label: 'Playback', icon: '▶', blurb: 'Watching in Mediarr: converting videos and streaming away from home.' },
-  { id: 'watchlists', label: 'Watchlists', icon: '☆', blurb: 'Simkl and AniList lists.' },
-  { id: 'users', label: 'Users', icon: '☺', blurb: 'Who can sign in, and what they can do.' },
-  { id: 'system', label: 'System', icon: '⚙', blurb: 'How Mediarr runs on this PC.' },
-  { id: 'account', label: 'My account', icon: '⚿', blurb: 'Your password, two-factor sign-in and sessions.' },
+const SECTIONS: { id: SectionId; label: string; icon: IconName; blurb: string }[] = [
+  { id: 'overview', label: 'Overview', icon: 'info', blurb: 'What’s set up, and what still needs attention.' },
+  { id: 'library', label: 'Library', icon: 'folder', blurb: 'Where movies, shows and anime are kept.' },
+  { id: 'connections', label: 'Connections', icon: 'refresh', blurb: 'The services Mediarr talks to: metadata, indexers and your download client.' },
+  { id: 'downloading', label: 'Downloading', icon: 'queue', blurb: 'Which releases to pick, and how often to look for new episodes.' },
+  { id: 'playback', label: 'Playback', icon: 'play', blurb: 'Watching in Mediarr: converting videos and streaming away from home.' },
+  { id: 'watchlists', label: 'Watchlists', icon: 'watchlist', blurb: 'Simkl and AniList lists.' },
+  { id: 'users', label: 'Users', icon: 'account', blurb: 'Who can sign in, and what they can do.' },
+  { id: 'system', label: 'System', icon: 'settings', blurb: 'How Mediarr runs on this PC.' },
+  { id: 'account', label: 'My account', icon: 'account', blurb: 'Your password, two-factor sign-in and sessions.' },
 ];
 
 /** Sections whose fields are part of the settings form (they get the Save bar). */
@@ -200,7 +201,7 @@ function AdminSettings() {
           {SECTIONS.map((s) => (
             <button key={s.id} type="button" className={`settings-nav-item${s.id === section ? ' on' : ''}`} aria-current={s.id === section ? 'page' : undefined} onClick={() => go(s.id)}>
               <span className="settings-nav-icon" aria-hidden>
-                {s.icon}
+                <Icon name={s.icon} size={17} />
               </span>
               {s.label}
             </button>

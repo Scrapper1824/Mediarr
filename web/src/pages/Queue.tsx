@@ -18,7 +18,7 @@ export default function Queue() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1>Queue</h1>
+        <h1>Downloads</h1>
         <p className="muted">Synced with qBittorrent every 30 seconds. Finished downloads are renamed and removed from qBittorrent.</p>
       </header>
       {queue.isLoading && <div className="loading">Loading…</div>}

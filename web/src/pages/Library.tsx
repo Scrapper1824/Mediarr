@@ -4,6 +4,31 @@ import { Link } from 'react-router-dom';
 import { api, typeLabel, type Media, type MediaType } from '../api';
 import Poster from '../components/Poster';
 import Spinner from '../components/Spinner';
+import Icon from '../components/Icon';
+
+/** The one thing worth flagging on a poster, if anything (downloaded titles need no badge). */
+function PosterFlag({ m }: { m: Media }) {
+  if (m.search?.running)
+    return (
+      <span className="badge info row-inline">
+        <Spinner size={10} /> Searching
+      </span>
+    );
+  if (m.pendingSuggestions) return <span className="badge bundle">Choose a bundle</span>;
+  if (m.downloading) return <span className="badge info">Downloading</span>;
+  if (m.type === 'movie' ? !m.has_file : m.episodeFileCount === 0) return <span className="badge muted">{m.monitored ? 'Wanted' : 'Not downloaded'}</span>;
+  return null;
+}
+
+/** "2016", "2023 · 3 of 38 episodes", "2023 · All 12 episodes". */
+function caption(m: Media) {
+  const parts: string[] = [];
+  if (m.year) parts.push(String(m.year));
+  if (m.type !== 'movie' && m.episodeCount > 0) {
+    parts.push(m.episodeFileCount >= m.episodeCount ? `All ${m.episodeCount} episodes` : `${m.episodeFileCount} of ${m.episodeCount} episodes`);
+  }
+  return parts.join(' · ');
+}
 
 export function StatusBadge({ m }: { m: Media }) {
   if (m.search?.running)
@@ -37,42 +62,53 @@ export default function Library({ type }: { type: MediaType }) {
 
   return (
     <div className="page">
-      <header className="page-header row between">
+      <header className="page-header library-header">
         <div>
           <h1>{typeLabel[type]}</h1>
-          <p className="muted">{media.data?.length ?? 0} in library</p>
+          <p className="muted">{media.data ? `${media.data.length} ${media.data.length === 1 ? 'title' : 'titles'}` : ' '}</p>
         </div>
-        <div className="row">
-          <input className="input" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <div className="row library-tools">
+          <label className="search-field">
+            <Icon name="search" size={17} />
+            <input className="input" placeholder={`Find in ${typeLabel[type].toLowerCase()}`} value={filter} onChange={(e) => setFilter(e.target.value)} aria-label={`Find in ${typeLabel[type].toLowerCase()}`} />
+          </label>
           <Link to="/discover" className="btn primary">
-            + Request
+            Request
           </Link>
         </div>
       </header>
 
       {media.isLoading && <div className="loading">Loading…</div>}
       {media.data && !media.data.length && (
-        <div className="empty">
-          Nothing here yet. <Link to="/discover">Request something</Link>.
+        <div className="empty-state">
+          <h2>No {typeLabel[type].toLowerCase()} yet</h2>
+          <p className="muted">Request one from Discover and it shows up here once it's downloaded.</p>
+          <Link to="/discover" className="btn primary">
+            Go to Discover
+          </Link>
         </div>
       )}
+      {media.data && media.data.length > 0 && !list.length && <div className="empty">Nothing matches “{filter}”.</div>}
 
       <div className="grid">
         {list.map((m) => (
           <Link key={m.id} to={`/media/${m.id}`} className="card link-card">
             <Poster src={m.poster} title={m.title}>
               <span className="corner">
-                <StatusBadge m={m} />
+                <PosterFlag m={m} />
               </span>
-              {m.type === 'anime' && m.anime_audio && <span className={`corner-left chip audio-${m.anime_audio}`}>{m.anime_audio}</span>}
+              {m.type === 'anime' && m.anime_audio && <span className={`corner-left chip audio-${m.anime_audio}`}>{m.anime_audio === 'dub' ? 'Dub' : 'Sub'}</span>}
+              {m.type !== 'movie' && m.episodeCount > 0 && m.episodeFileCount > 0 && m.episodeFileCount < m.episodeCount && (
+                <span className="poster-progress" aria-hidden>
+                  <span style={{ width: `${(m.episodeFileCount / m.episodeCount) * 100}%` }} />
+                </span>
+              )}
             </Poster>
             <div className="card-body">
               <div className="card-title" title={m.title}>
                 {m.title}
               </div>
-              <div className="muted small">
-                {m.year ?? '—'} {m.monitored ? '· Monitored' : '· Unmonitored'}
-              </div>
+              <div className="muted small">{caption(m) || ' '}</div>
             </div>
           </Link>
         ))}

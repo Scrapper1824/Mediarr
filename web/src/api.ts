@@ -21,6 +21,8 @@ export interface Media {
   alt_titles: string[];
   year: number | null;
   poster: string | null;
+  /** Wide artwork (TMDB backdrop / AniList banner); empty when the title has none. */
+  backdrop: string | null;
   overview: string | null;
   root_folder: string;
   folder_name: string;
