@@ -34,6 +34,7 @@ import type { SearchScope } from '../core/scoring.js';
 import { activeEpisodeIds, db, getEpisodes, getMedia, hasActiveDownload, logHistory, now, type DownloadRow, type MediaRow, type MediaType } from '../db.js';
 import { getSettings, ROOT_KEYS, saveSettings, SECRET_KEYS, type Settings } from '../settings.js';
 import { folderSpace } from '../core/rootFolders.js';
+import { storageUsage } from '../core/storage.js';
 import { identifyFolder, scanLibrary, scanStatus } from '../core/scanner.js';
 import { queueMediaWork } from '../playback/jobs.js';
 import { beginInstall, checkForUpdate, updateInfo } from '../system/updater.js';
@@ -158,6 +159,9 @@ export async function apiRoutes(app: FastifyInstance) {
     const s = getSettings();
     return Object.fromEntries(Object.values(ROOT_KEYS).map((k) => [k, s[k].map(folderSpace)]));
   });
+
+  // Sidebar storage bars (admins only): how full each library drive is, and how much is the library.
+  app.get('/api/system/storage', async () => storageUsage());
 
   app.get('/api/system/autostart', async () => ({ supported: autostartSupported(), enabled: await getAutostart() }));
   app.put<{ Body: { enabled?: boolean } }>('/api/system/autostart', async (req) => ({

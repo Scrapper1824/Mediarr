@@ -15,6 +15,7 @@ import { useAuth, useIsAdmin } from './components/AuthGate';
 import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
 import Icon, { type IconName } from './components/Icon';
 import Logo from './components/Logo';
+import StorageBars from './components/StorageBars';
 
 // The player (hls.js + subtitle renderer) only loads when something is played.
 const Watch = lazy(() => import('./pages/Watch'));
@@ -109,6 +110,9 @@ function Shell() {
             </span>
           </button>
         )}
+        <div className="sidebar-bottom">
+          {isAdmin && <StorageBars />}
+        </div>
         <div className="sidebar-user">
           <span className="avatar" aria-hidden>
             {(auth.data?.user?.username ?? '?').slice(0, 1).toUpperCase()}
