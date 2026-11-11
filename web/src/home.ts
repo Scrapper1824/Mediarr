@@ -30,6 +30,10 @@ export interface HomeFeatured extends HomeTitle {
   play: PlayTarget;
   reason: 'continue' | 'upnext' | 'new';
 }
+/** A poster on Home: what clicking it plays (null if nothing can be played). */
+export interface PlayableTitle extends HomeTitle {
+  play: PlayTarget | null;
+}
 export interface ContinueItem extends HomeTitle, PlayTarget {
   upNext: boolean;
   updatedAt: string;
@@ -37,8 +41,8 @@ export interface ContinueItem extends HomeTitle, PlayTarget {
 export interface HomeData {
   featured: HomeFeatured[];
   continue: ContinueItem[];
-  recent: HomeTitle[];
-  libraries: Record<MediaType, HomeTitle[]>;
+  recent: PlayableTitle[];
+  libraries: Record<MediaType, PlayableTitle[]>;
 }
 
 /** TMDB backdrops are stored at a size for cards; the full-width banner asks for the sharp one. */

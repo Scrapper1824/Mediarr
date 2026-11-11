@@ -17,6 +17,8 @@ export interface SearchResult {
 export interface Media {
   id: number;
   type: MediaType;
+  tmdb_id: number | null;
+  anilist_id: number | null;
   title: string;
   alt_titles: string[];
   year: number | null;
@@ -28,7 +30,7 @@ export interface Media {
   folder_name: string;
   monitored: boolean;
   anime_audio: 'sub' | 'dub' | null;
-  anime_seasons: { season: number; title: string; episodes: number; year: number | null }[];
+  anime_seasons: { season: number; title: string; episodes: number; year: number | null; anilistId: number | null }[];
   status: string | null;
   release_date: string | null;
   has_file: boolean;

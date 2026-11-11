@@ -1012,8 +1012,8 @@ a.hero-round:hover { text-decoration: none; }
 .title-hero-art img { width: 100%; height: 100%; object-fit: cover; object-position: center 22%; opacity: 0.6; display: block; }
 .title-hero-art img.soft { filter: blur(48px) saturate(1.4); transform: scale(1.35); opacity: 0.5; }
 .title-hero-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgb(var(--bg-rgb) / 0.94) 0%, rgb(var(--bg-rgb) / 0.62) 42%, rgb(var(--bg-rgb) / 0.12) 100%), linear-gradient(180deg, rgb(var(--bg-rgb) / 0.4) 0%, transparent 30%); }
-.title-hero-inner { display: flex; align-items: flex-end; gap: clamp(24px, 3vw, 46px); max-width: 1280px; }
-.title-hero-inner > .poster { width: clamp(150px, 16vw, 236px); flex-shrink: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.title-hero-inner { display: flex; align-items: flex-start; gap: clamp(24px, 3vw, 46px); max-width: 1280px; }
+.title-hero-inner > .poster { position: sticky; top: 24px; margin-top: 6px; width: clamp(150px, 16vw, 236px); flex-shrink: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08); }
 .title-hero-info { min-width: 0; padding-bottom: 4px; }
 .title-name { font-size: clamp(36px, 4.8vw, 66px); font-weight: 800; letter-spacing: -0.04em; line-height: 1.02; max-width: 18ch; text-wrap: balance; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.45); }
 .title-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-top: 14px; color: rgba(236, 238, 243, 0.8); font-weight: 550; }
@@ -1062,5 +1062,31 @@ a.hero-round:hover { text-decoration: none; }
 .hero-meta > span:not(.hero-cert) + span::before { display: none; }
 .hero-rule { display: none; }
 .hero-title { margin-bottom: 12px; }
+
+/* Home cards: the art plays, the name opens the title page. */
+.home-poster-link { display: block; border-radius: 10px; }
+.home-poster-link:focus-visible { outline: none; }
+.home-poster-link:focus-visible .home-poster { outline: 2px solid var(--accent); outline-offset: 3px; }
+.home-poster-link:hover .home-poster, .home-poster-link:focus-visible .home-poster { transform: translateY(-3px) scale(1.03); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55); }
+.home-poster-link:hover .home-play-badge, .home-poster-link:focus-visible .home-play-badge { opacity: 1; transform: none; }
+.home-poster-card:hover .home-poster { transform: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.home-poster-card .home-poster-link:hover .home-poster { transform: translateY(-3px) scale(1.03); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55); }
+a.home-card-title { color: var(--text); text-decoration: none; }
+a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, 0.4); }
+
+/* Sub/dub availability (title page and info popup) */
+.availability { margin-top: 18px; padding: 13px 16px 12px; max-width: 640px; border-radius: 14px; background: rgba(255, 255, 255, 0.045); border: 1px solid var(--line); }
+.availability-label { font-size: 13px; font-weight: 650; color: var(--muted); margin-bottom: 6px; }
+.availability dl { margin: 0; display: grid; gap: 6px; }
+.availability-row { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.availability-row dt { font-size: 13.5px; color: var(--muted); }
+.availability-row dd { margin: 0; font-weight: 600; }
+.availability-row.none dd { font-weight: 500; color: var(--muted); }
+.availability-next { margin-top: 8px; font-size: 13.5px; color: color-mix(in srgb, var(--accent) 75%, #fff); font-weight: 600; }
+.availability-credit { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--faint); }
+.availability-credit:hover { color: var(--muted); }
+.title-info { margin-top: 20px; max-width: 760px; }
+.title-hero .details-ratings { margin-top: 14px; }
+@media (max-width: 560px) { .availability-row { grid-template-columns: 1fr; gap: 0; } }
 
 @media (prefers-reduced-motion: reduce) { :root { transition: none; } }

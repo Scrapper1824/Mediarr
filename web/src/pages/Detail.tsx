@@ -10,6 +10,9 @@ import SuggestionsPanel from '../components/SuggestionsPanel';
 import Icon from '../components/Icon';
 import { useAmbient } from '../ambient';
 import { sharp } from '../home';
+import Availability from '../components/Availability';
+import TrailerPlayer from '../components/TrailerPlayer';
+import { InfoItem, languageName, Ratings, WatchlistButton, type MediaInfo } from '../components/TitleInfo';
 
 /** Live status of the background search: a spinner while it runs, then what it found. */
 function SearchBanner({ m }: { m: MediaDetail }) {
@@ -149,13 +152,24 @@ export default function Detail() {
   });
 
   useAmbient(q.data?.poster);
+  const sourceId = q.data ? (q.data.type === 'anime' ? q.data.anilist_id : q.data.tmdb_id) : null;
+  const info = useQuery({
+    queryKey: ['discover', 'info', q.data?.type, sourceId],
+    queryFn: () => api.get<MediaInfo>(`/api/discover/info?type=${q.data!.type}&id=${sourceId}`),
+    enabled: !!sourceId,
+    staleTime: 30 * 60_000,
+  });
+  const [trailer, setTrailer] = useState(false);
 
   if (q.isLoading) return <div className="page loading">Loading…</div>;
   if (q.error || !q.data) return <div className="page error-box">{(q.error as Error)?.message ?? 'Not found'}</div>;
   const m = q.data;
   const searching = search.isPending || m.search.running;
 
-  const upNext = m.type !== 'movie' && m.play?.kind === 'episode' ? m.play : null;
+  // Sub/dub news matters most for the newest season.
+  const latestSeason = m.anime_seasons?.length ? m.anime_seasons[m.anime_seasons.length - 1] : null;
+  const priorSeason = m.anime_seasons?.length > 1 ? m.anime_seasons[m.anime_seasons.length - 2] : null;
+  const seasonLabel = (s: { season: number; year: number | null }) => `Season ${s.season}${s.year ? ` (${s.year})` : ''}`;
   const seasonInfo = (n: number) => m.anime_seasons?.find((x) => x.season === n);
   const seasons = [...new Set(m.episodes.map((e) => e.season))].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b));
   const isOpen = (s: number) => open.has(s) || (seasons.length === 1 && !open.has(-s - 1));
@@ -199,6 +213,7 @@ export default function Detail() {
                 ))}
               {m.downloading && <span className="badge info">Downloading</span>}
             </div>
+            {info.data && <Ratings ratings={info.data.ratings} />}
             <div className="title-actions">
               {m.play ? (
                 <Link className="hero-play" to={`/watch/${m.play.kind}/${m.play.id}`} title={m.play.episodeTitle ?? undefined}>
@@ -211,8 +226,30 @@ export default function Detail() {
                   {searching ? <Spinner /> : <Icon name="search" size={18} />} {searching ? 'Searching…' : m.type === 'movie' ? 'Find a download' : 'Find episodes'}
                 </button>
               )}
+              {info.data?.trailer && (
+                <button className="hero-secondary" onClick={() => setTrailer(true)}>
+                  <Icon name="play" size={16} filled /> Trailer
+                </button>
+              )}
+              {sourceId && <WatchlistButton type={m.type} id={sourceId} info={{ title: m.title, year: m.year, poster: m.poster }} />}
             </div>
             {m.overview && <Overview text={m.overview} />}
+            {info.data && (
+              <div className="details-info title-info">
+                <InfoItem label="Length" value={[...info.data.length, m.type === 'movie' ? null : info.data.runtime].filter(Boolean).join(' · ') || info.data.runtime} />
+                <InfoItem label="Released" value={info.data.released ? formatDate(info.data.released) : null} />
+                <InfoItem label="Original language" value={languageName(info.data.originalLanguage)} />
+                <InfoItem label={info.data.studioLabel} value={info.data.studios.join(', ')} />
+                <InfoItem label="Genres" value={info.data.genres.join(', ')} />
+              </div>
+            )}
+            {m.type === 'anime' && latestSeason?.anilistId ? (
+              <Availability
+                anilistId={latestSeason.anilistId}
+                label={m.anime_seasons.length > 1 ? seasonLabel(latestSeason) : undefined}
+                previous={priorSeason?.anilistId ? { anilistId: priorSeason.anilistId, label: seasonLabel(priorSeason) } : undefined}
+              />
+            ) : null}
           </div>
         </div>
       </section>
@@ -399,6 +436,9 @@ export default function Detail() {
       )}
 
       {releases && <ReleasesDialog scope={releases} onClose={() => setReleases(null)} />}
+      {trailer && info.data?.trailer && (
+        <TrailerPlayer youtubeId={info.data.trailer.youtubeId} title={`${m.title} – ${info.data.trailer.title}`} onClose={() => setTrailer(false)} />
+      )}
       </div>
     </div>
   );

@@ -39,6 +39,11 @@ export interface ContinueItem extends HomeTitle, PlayTarget {
   updatedAt: string;
 }
 
+/** A poster on Home: what clicking it plays (null if nothing can be played). */
+export interface PlayableTitle extends HomeTitle {
+  play: PlayTarget | null;
+}
+
 export interface FeaturedItem extends HomeTitle {
   play: PlayTarget;
   /** Why it is in the banner: partway through, the next episode of something you watch, or newly downloaded. */
@@ -172,8 +177,8 @@ export function playTarget(userId: number, media: MediaRow): PlayTarget | null {
 export interface HomeData {
   featured: FeaturedItem[];
   continue: ContinueItem[];
-  recent: HomeTitle[];
-  libraries: Record<MediaType, HomeTitle[]>;
+  recent: PlayableTitle[];
+  libraries: Record<MediaType, PlayableTitle[]>;
 }
 
 export function homeFor(userId: number): HomeData {
@@ -197,14 +202,20 @@ export function homeFor(userId: number): HomeData {
   // What you are watching stays first; among new titles, ones with a backdrop look best up front.
   const rank = (f: FeaturedItem) => (f.reason === 'new' ? 2 : 0) + (f.backdrop ? 0 : 1);
   featured.sort((a, b) => rank(a) - rank(b));
+  // Every poster plays straight away (resume, next episode, or the first), like the banner.
+  const playable = (list: HomeTitle[]): PlayableTitle[] =>
+    list.map((t) => {
+      const media = getMedia(t.mediaId);
+      return { ...t, play: media ? playTarget(userId, media) : null };
+    });
   return {
     featured,
     continue: cont,
-    recent,
+    recent: playable(recent),
     libraries: {
-      movie: downloadedTitles({ type: 'movie', limit: 30 }),
-      show: downloadedTitles({ type: 'show', limit: 30 }),
-      anime: downloadedTitles({ type: 'anime', limit: 30 }),
+      movie: playable(downloadedTitles({ type: 'movie', limit: 30 })),
+      show: playable(downloadedTitles({ type: 'show', limit: 30 })),
+      anime: playable(downloadedTitles({ type: 'anime', limit: 30 })),
     },
   };
 }

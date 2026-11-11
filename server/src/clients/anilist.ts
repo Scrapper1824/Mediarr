@@ -356,6 +356,40 @@ export async function featuredAnime(): Promise<FeaturedItem[]> {
     }));
 }
 
+export interface AiringInfo {
+  format: string | null;
+  status: string | null;
+  /** Total episodes, when known. */
+  episodes: number | null;
+  /** The next episode to air in Japan (with simulcast subs). */
+  next: { episode: number; at: string } | null;
+  /** Every scheduled episode still to come. */
+  upcoming: { episode: number; at: string }[];
+  startDate: string | null;
+}
+
+/** When an anime's episodes air: what's out and what's scheduled (AniList's own schedule, delays included). */
+export async function airingFor(id: number): Promise<AiringInfo> {
+  const data = await gql<{ Media: any }>(
+    `query ($id: Int) { Media(id: $id, type: ANIME) {
+      format status episodes startDate { year month day }
+      nextAiringEpisode { episode airingAt }
+      airingSchedule(notYetAired: true, perPage: 50) { nodes { episode airingAt } }
+    } }`,
+    { id },
+  );
+  const m = data.Media;
+  const iso = (t: number) => new Date(t * 1000).toISOString();
+  return {
+    format: m.format ?? null,
+    status: m.status ?? null,
+    episodes: m.episodes ?? null,
+    next: m.nextAiringEpisode ? { episode: m.nextAiringEpisode.episode, at: iso(m.nextAiringEpisode.airingAt) } : null,
+    upcoming: (m.airingSchedule?.nodes ?? []).map((n: { episode: number; airingAt: number }) => ({ episode: n.episode, at: iso(n.airingAt) })),
+    startDate: dateOf(m.startDate),
+  };
+}
+
 const FORMAT_LABEL: Record<string, string> = {
   TV: 'TV series', TV_SHORT: 'TV short', MOVIE: 'Movie', SPECIAL: 'Special', OVA: 'OVA', ONA: 'ONA', MUSIC: 'Music video',
 };

@@ -161,6 +161,11 @@ describe('the Home page', () => {
     expect(home.recent.some((r: { mediaId: number }) => r.mediaId === empty.id)).toBe(false);
     expect(home.libraries.anime.map((r: { title: string }) => r.title)).toEqual(['Frieren']);
     expect(home.libraries.show[0]).toMatchObject({ title: 'Severance', episodeFiles: 3 });
+    // Every poster knows what clicking it plays: the next episode, the half-watched movie, the first episode.
+    const playOf = (title: string) => home.recent.find((r: { title: string }) => r.title === title).play;
+    expect(playOf('Severance')).toMatchObject({ kind: 'episode', id: show.eps[1], resume: false });
+    expect(playOf('Dune')).toMatchObject({ kind: 'movie', id: movie, resume: true });
+    expect(home.libraries.anime[0].play).toMatchObject({ kind: 'episode', id: anime.eps[0] });
     // The banner plays the right thing for each title.
     const byTitle = Object.fromEntries(home.featured.map((f: { title: string; play: unknown }) => [f.title, f.play]));
     expect(byTitle.Severance).toMatchObject({ kind: 'episode', id: show.eps[1], resume: false });

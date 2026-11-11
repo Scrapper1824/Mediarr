@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, type SearchResult } from '../api';
-import { shortEp, type ContinueItem, type HomeData, type HomeTitle } from '../home';
+import { shortEp, type ContinueItem, type HomeData, type HomeTitle, type PlayableTitle } from '../home';
 import HomeHero from '../components/HomeHero';
 import MediaDetails from '../components/MediaDetails';
 import Rail, { RailSkeleton } from '../components/Rail';
@@ -42,9 +42,9 @@ function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void
       </Link>
       <div className="home-card-text">
         <div className="home-card-lines">
-          <span className="home-card-title" title={item.title}>
+          <Link className="home-card-title" to={`/media/${item.mediaId}`} title={`Open ${item.title}`}>
             {item.title}
-          </span>
+          </Link>
           <span className="home-card-sub">{sub || (item.kind === 'movie' ? 'Movie' : '')}</span>
         </div>
         <button type="button" className="home-info" aria-label={`${item.title} details`} title="Details" onClick={onInfo}>
@@ -55,20 +55,35 @@ function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void
   );
 }
 
-function PosterCard({ item }: { item: HomeTitle }) {
+/** The poster plays (resume, the next episode, or from the start); the name opens the title's page. */
+function PosterCard({ item }: { item: PlayableTitle }) {
   const isNew = Date.now() - new Date(item.addedAt).getTime() < NEW_MS;
   const sub = [item.year, item.type !== 'movie' && item.episodeFiles ? `${item.episodeFiles} ep${item.episodeFiles === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ');
+  const p = item.play;
+  const playText = p ? `${p.resume ? 'Resume' : 'Play'} ${item.title}${p.label ? ` ${shortEp(p.label)}` : ''}` : item.title;
   return (
-    <Link className="home-poster-card" to={`/media/${item.mediaId}`} aria-label={item.title}>
-      <div className="home-poster">
-        {item.poster ? <img src={item.poster} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{item.title.slice(0, 1)}</div>}
-        {isNew && <span className="home-new">New</span>}
-      </div>
-      <span className="home-card-title" title={item.title}>
+    <div className="home-poster-card">
+      <Link className="home-poster-link" to={p ? `/watch/${p.kind}/${p.id}` : `/media/${item.mediaId}`} aria-label={playText} title={playText}>
+        <div className="home-poster">
+          {item.poster ? <img src={item.poster} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{item.title.slice(0, 1)}</div>}
+          {isNew && <span className="home-new">New</span>}
+          {p && (
+            <span className="home-play-badge" aria-hidden>
+              ▶
+            </span>
+          )}
+          {p?.resume && p.duration > 0 && (
+            <span className="home-progress">
+              <span style={{ width: `${Math.min(100, (p.position / p.duration) * 100)}%` }} />
+            </span>
+          )}
+        </div>
+      </Link>
+      <Link className="home-card-title" to={`/media/${item.mediaId}`} title={`Open ${item.title}`}>
         {item.title}
-      </span>
+      </Link>
       {sub && <span className="home-card-sub">{sub}</span>}
-    </Link>
+    </div>
   );
 }
 

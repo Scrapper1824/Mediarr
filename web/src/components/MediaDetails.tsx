@@ -3,97 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, formatDate, type SearchResult } from '../api';
 import Spinner from './Spinner';
-import TomatoIcon from './TomatoIcon';
 import TrailerPlayer from './TrailerPlayer';
-import WatchlistMenu from './WatchlistMenu';
-import type { MediaType, WatchItem } from '../api';
-
-/** The title's watchlist status, when the user has a service connected that takes this kind of title. */
-function WatchlistButton({ type, id, info }: { type: MediaType; id: number; info: { title: string; year: number | null; poster: string | null } }) {
-  const q = useQuery({
-    queryKey: ['watchlist', 'item', type, id],
-    queryFn: () => api.get<{ services: string[]; item: WatchItem | null }>(`/api/watchlist/item?type=${type}&id=${id}`),
-    staleTime: 60_000,
-  });
-  if (!q.data?.services?.length) return null;
-  return <WatchlistMenu type={type} id={id} status={q.data.item?.status ?? null} info={info} />;
-}
-
-interface Rating {
-  source: 'tmdb' | 'imdb' | 'rt' | 'anilist' | 'mal' | 'kitsu';
-  label: string;
-  value: string;
-  percent: number;
-  url?: string;
-  /** Known to the site but no score yet (new release). */
-  pending?: boolean;
-}
-
-interface MediaInfo extends SearchResult {
-  originalTitle: string | null;
-  tagline: string | null;
-  backdrop: string | null;
-  certification: string | null;
-  runtime: string | null;
-  length: string[];
-  status: string | null;
-  released: string | null;
-  originalLanguage: string | null;
-  genres: string[];
-  studios: string[];
-  studioLabel: string;
-  ratings: Rating[];
-  links: { label: string; url: string }[];
-  trailer: { youtubeId: string; title: string } | null;
-}
-
-const languageNames = (() => {
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'language' });
-  } catch {
-    return null;
-  }
-})();
-const languageName = (code: string | null) => (code ? (languageNames?.of(code) ?? code.toUpperCase()) : null);
-
-/** Site-styled rating badge: TMDB, IMDb, Rotten Tomatoes, AniList, MyAnimeList, Kitsu. */
-function RatingBadge({ r }: { r: Rating }) {
-  const logo =
-    r.source === 'rt' ? (
-      <TomatoIcon />
-    ) : (
-      <span className={`rating-logo logo-${r.source}`}>
-        {{ tmdb: 'TMDB', imdb: 'IMDb', anilist: 'AL', mal: 'MAL', kitsu: 'K' }[r.source]}
-      </span>
-    );
-  const body = (
-    <>
-      {logo}
-      <span className="rating-value">{r.value}</span>
-    </>
-  );
-  const title = r.pending ? `Not rated on ${r.label} yet (too few votes)` : `${r.label} rating`;
-  const cls = `rating${r.pending ? ' pending' : ''}`;
-  return r.url ? (
-    <a className={cls} href={r.url} target="_blank" rel="noreferrer noopener" title={title}>
-      {body}
-    </a>
-  ) : (
-    <span className={cls} title={title}>
-      {body}
-    </span>
-  );
-}
-
-function InfoItem({ label, value }: { label: string; value: string | null | undefined }) {
-  if (!value) return null;
-  return (
-    <div className="info-item">
-      <span className="info-label">{label}</span>
-      <span className="info-value">{value}</span>
-    </div>
-  );
-}
+import { InfoItem, languageName, Ratings, WatchlistButton, type MediaInfo } from './TitleInfo';
+import Availability from './Availability';
 
 /** Radarr-style details sheet for a Discover title (opens when you click a card). */
 export default function MediaDetails({
@@ -179,13 +91,7 @@ export default function MediaDetails({
 
             {d && (
               <>
-                {d.ratings.length > 0 && (
-                  <div className="details-ratings">
-                    {d.ratings.map((r) => (
-                      <RatingBadge key={r.source} r={r} />
-                    ))}
-                  </div>
-                )}
+                <Ratings ratings={d.ratings} />
 
                 <div className="details-info">
                   <InfoItem label="Status" value={libraryId ? 'In your library' : d.status} />
@@ -197,6 +103,7 @@ export default function MediaDetails({
                 </div>
 
                 {d.overview && <p className="details-overview">{d.overview}</p>}
+                {item.type === 'anime' && d.anilistId ? <Availability anilistId={d.anilistId} /> : null}
               </>
             )}
 

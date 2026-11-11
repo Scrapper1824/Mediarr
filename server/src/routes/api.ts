@@ -40,6 +40,7 @@ import { beginInstall, checkForUpdate, updateInfo } from '../system/updater.js';
 import { ffmpegInfo } from '../playback/ffmpeg.js';
 import { testGpu } from '../playback/gpuTest.js';
 import { playTarget } from '../core/home.js';
+import { availabilityFor } from '../core/availability.js';
 
 const MASK = '********';
 
@@ -63,7 +64,7 @@ function mediaSummary(m: MediaRow) {
   return {
     ...m,
     alt_titles: JSON.parse(m.alt_titles) as string[],
-    anime_seasons: animeSeasons(m).map((s) => ({ season: s.season, title: s.title, episodes: s.episodes, year: s.year })),
+    anime_seasons: animeSeasons(m).map((s) => ({ season: s.season, title: s.title, episodes: s.episodes, year: s.year, anilistId: s.anilistIds.at(-1) ?? null })),
     monitored: !!m.monitored,
     has_file: !!m.has_file,
     downloading: hasActiveDownload(m.id),
@@ -219,6 +220,13 @@ export async function apiRoutes(app: FastifyInstance) {
       featured: withLibraryIds(type, cached.featured),
       rows: cached.rows.map((r) => ({ ...r, items: withLibraryIds(type, r.items) })),
     };
+  });
+
+  // Anime: what's out subbed and dubbed, and when the rest is expected (cached a few hours).
+  app.get<{ Querystring: { anilistId: string } }>('/api/discover/availability', async (req, reply) => {
+    const id = Number(req.query.anilistId);
+    if (!Number.isInteger(id) || id <= 0) return reply.code(400).send({ error: 'Bad request' });
+    return availabilityFor(id);
   });
 
   app.get<{ Querystring: { type: MediaType; id: string } }>('/api/discover/details', async (req) => {
