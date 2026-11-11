@@ -89,12 +89,7 @@ code { font-size: 0.92em; }
   border-right: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px 26px; font-family: var(--display); font-weight: 750; font-size: 21px; letter-spacing: -0.03em; }
-.brand-mark {
-  width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center;
-  background: linear-gradient(145deg, #ffd27a, var(--accent) 55%, #d68a16); color: var(--accent-ink);
-  font-family: var(--display); font-weight: 800; font-size: 17px;
-  box-shadow: 0 6px 18px rgba(242, 181, 68, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.45);
-}
+.brand-mark { display: block; flex-shrink: 0; }
 nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-group + .nav-group { margin-top: 18px; }
 .nav-heading { padding: 0 12px 6px; font-size: 12px; font-weight: 600; color: var(--faint); }
@@ -152,7 +147,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); border-color: var(--line-strong); text-decoration: none; }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 6px 20px rgba(242, 181, 68, 0.22); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover:not(:disabled) { color: var(--text); background: rgba(255, 255, 255, 0.06); border-color: transparent; }

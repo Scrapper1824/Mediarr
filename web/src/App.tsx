@@ -14,6 +14,7 @@ import SearchAlerts from './components/SearchAlerts';
 import { useAuth, useIsAdmin } from './components/AuthGate';
 import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
 import Icon, { type IconName } from './components/Icon';
+import Logo from './components/Logo';
 
 // The player (hls.js + subtitle renderer) only loads when something is played.
 const Watch = lazy(() => import('./pages/Watch'));
@@ -77,7 +78,7 @@ function Shell() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">M</span>
+          <Logo />
           <span>Mediarr</span>
         </div>
         <nav>

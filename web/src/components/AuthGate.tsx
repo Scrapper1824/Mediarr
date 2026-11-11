@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, UNAUTHORIZED_EVENT, type AuthStatus } from '../api';
 import Spinner from './Spinner';
+import Logo from './Logo';
 
 export function useIsAdmin(): boolean {
   return useAuth().data?.user?.role === 'admin';
@@ -14,7 +15,7 @@ export function useAuth() {
 function Brand() {
   return (
     <div className="auth-brand">
-      <span className="brand-mark">M</span>
+      <Logo />
       <span>Mediarr</span>
     </div>
   );
