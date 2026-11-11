@@ -93,6 +93,46 @@ const toShow = (s: any): SearchResult => ({
   ...(s.original_name && s.original_name !== s.name ? { altTitles: [s.original_name] } : {}),
 });
 
+// Episode counts, remembered for a while: a Discover row refresh asks about the same shows again.
+const episodeCountCache = new Map<number, { at: number; count: number | null }>();
+const EPISODE_COUNT_TTL_MS = 12 * 3600_000;
+
+/** Lookups already on their way: rows load in parallel and share shows, so they wait for the same answer. */
+const episodeCountInFlight = new Map<number, Promise<number | null>>();
+
+function episodeCount(id: number): Promise<number | null> {
+  const hit = episodeCountCache.get(id);
+  if (hit && Date.now() - hit.at < EPISODE_COUNT_TTL_MS) return Promise.resolve(hit.count);
+  const pending = episodeCountInFlight.get(id);
+  if (pending) return pending;
+  const lookup = tmdb<{ number_of_episodes?: number }>(`/tv/${id}`)
+    .catch(() => null)
+    .then((s) => {
+      const count = s && typeof s.number_of_episodes === 'number' && s.number_of_episodes > 0 ? s.number_of_episodes : null;
+      if (s) episodeCountCache.set(id, { at: Date.now(), count });
+      if (episodeCountCache.size > 2000) episodeCountCache.delete(episodeCountCache.keys().next().value!);
+      return count;
+    })
+    .finally(() => episodeCountInFlight.delete(id));
+  episodeCountInFlight.set(id, lookup);
+  return lookup;
+}
+
+/** Adds "120 eps" to TV shows (for Discover cards). A few lookups at a time; failures just leave it off. */
+export async function withEpisodeCounts(items: SearchResult[]): Promise<SearchResult[]> {
+  const ids = [...new Set(items.filter((i) => i.type === 'show' && i.tmdbId).map((i) => i.tmdbId!))];
+  const counts = new Map<number, number | null>();
+  for (let i = 0; i < ids.length; i += 8) {
+    const batch = ids.slice(i, i + 8);
+    const found = await Promise.all(batch.map(episodeCount));
+    batch.forEach((id, j) => counts.set(id, found[j]));
+  }
+  return items.map((it) => {
+    const n = it.type === 'show' && it.tmdbId ? counts.get(it.tmdbId) : null;
+    return n ? { ...it, extra: `${n} eps` } : it;
+  });
+}
+
 export async function searchMovies(query: string): Promise<SearchResult[]> {
   const r = await tmdb<{ results: any[] }>('/search/movie', { query, include_adult: 'false' });
   return r.results.map(toMovie);
@@ -144,7 +184,7 @@ export async function browseTmdb(type: 'movie' | 'show'): Promise<BrowseRow[]> {
         .filter((x) => x.poster_path && !x.adult && !isAnimeTitle(x) && !seen.has(x.id) && seen.add(x.id))
         .slice(0, ROW_SIZE)
         .map(map);
-      return { id, title, items };
+      return { id, title, items: type === 'show' ? await withEpisodeCounts(items) : items };
     }),
   );
 }

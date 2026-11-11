@@ -13,6 +13,7 @@ import {
   type BrowseRow,
   type FeaturedItem,
   type SearchResult,
+  withEpisodeCounts,
 } from '../clients/tmdb.js';
 import { runImport } from '../core/downloads.js';
 import {
@@ -173,7 +174,7 @@ export async function apiRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { type: MediaType; q: string } }>('/api/discover/search', async (req) => {
     const { type, q } = req.query;
     if (!q?.trim()) return [];
-    const results = type === 'movie' ? await searchMovies(q) : type === 'show' ? await searchShows(q) : await searchAnime(q);
+    const results = type === 'movie' ? await searchMovies(q) : type === 'show' ? await withEpisodeCounts(await searchShows(q)) : await searchAnime(q);
     return withLibraryIds(type, results);
   });
 

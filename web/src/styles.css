@@ -1115,6 +1115,23 @@ a.hero-round:hover { text-decoration: none; }
 a.home-card-title { color: var(--text); text-decoration: none; }
 a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, 0.4); }
 
+/* Discover cards: Home's poster cards, with an "In library" tag and a quick-request + on hover. */
+.discover-card button.home-poster-link, .discover-card .discover-name { background: none; border: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+.discover-art { position: relative; }
+.discover-owned { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #8fe3b5; background: rgba(10, 12, 18, 0.72); backdrop-filter: blur(8px); }
+.discover-add {
+  position: absolute; top: 8px; right: 8px; z-index: 2; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  border: none; cursor: pointer; color: var(--accent-ink); background: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  opacity: 0; transform: scale(0.85); transition: opacity 0.18s, transform 0.18s, background 0.15s;
+}
+.discover-add:hover { background: var(--accent-hover); }
+.discover-art:hover .discover-add, .discover-add:focus-visible, .discover-art:focus-within .discover-add { opacity: 1; transform: none; }
+.discover-art:hover .home-poster { transform: translateY(-3px) scale(1.03); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55); }
+.discover-card .discover-name { display: block; font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.discover-card .discover-name:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, 0.4); }
+.grid .discover-card { min-width: 0; }
+@media (hover: none) { .discover-add { opacity: 1; transform: none; width: 30px; height: 30px; } }
+
 /* Sub/dub availability (title page and info popup) */
 .availability { margin-top: 18px; padding: 13px 16px 12px; max-width: 640px; border-radius: 14px; background: rgba(255, 255, 255, 0.045); border: 1px solid var(--line); }
 .availability-label { font-size: 13px; font-weight: 650; color: var(--muted); margin-bottom: 6px; }

@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
 import { api, typeLabel, type MediaType, type SearchResult } from '../api';
 import AddDialog from '../components/AddDialog';
-import Chevron from '../components/Chevron';
 import Hero, { type FeaturedItem } from '../components/Hero';
 import MediaDetails from '../components/MediaDetails';
-import Poster from '../components/Poster';
+import Rail, { RailSkeleton } from '../components/Rail';
 
 interface BrowseRowData {
   id: string;
@@ -14,6 +12,7 @@ interface BrowseRowData {
   items: SearchResult[];
 }
 
+/** A Discover card, like Home's: the art (and the name) opens the details; + requests it straight away. */
 function ResultCard({
   r,
   onRequest,
@@ -23,49 +22,33 @@ function ResultCard({
   onRequest: (r: SearchResult) => void;
   onOpen: (r: SearchResult) => void;
 }) {
+  const sub = [r.year, r.extra].filter(Boolean).join(' · ');
   return (
-    <div
-      className="card clickable"
-      role="button"
-      tabIndex={0}
-      aria-label={`${r.title} details`}
-      onClick={() => onOpen(r)}
-      onKeyDown={(e) => {
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          onOpen(r);
-        }
-      }}
-    >
-      <Poster src={r.poster} title={r.title}>
-        {r.libraryId && <span className="badge ok corner">In library</span>}
-      </Poster>
-      <div className="card-body">
-        <div className="card-title" title={r.title}>
-          {r.title}
-        </div>
-        <div className="muted small">{[r.year, r.extra].filter(Boolean).join(' · ') || '—'}</div>
-        {r.libraryId ? (
-          <Link className="btn small ghost full" to={`/media/${r.libraryId}`} onClick={(e) => e.stopPropagation()}>
-            Open
-          </Link>
-        ) : (
-          <button
-            className="btn small primary full"
-            onClick={(e) => {
-              e.stopPropagation(); // the button requests; the rest of the card shows details
-              onRequest(r);
-            }}
-          >
-            Request
+    <div className="home-poster-card discover-card">
+      <div className="discover-art">
+        <button type="button" className="home-poster-link" onClick={() => onOpen(r)} aria-label={`${r.title} details`}>
+          <div className="home-poster">
+            {r.poster ? <img src={r.poster} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{r.title.slice(0, 1)}</div>}
+            {r.libraryId ? <span className="discover-owned">In library</span> : null}
+          </div>
+        </button>
+        {!r.libraryId && (
+          <button type="button" className="discover-add" onClick={() => onRequest(r)} aria-label={`Request ${r.title}`} title="Request">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
           </button>
         )}
       </div>
+      <button type="button" className="home-card-title discover-name" onClick={() => onOpen(r)} title={r.title}>
+        {r.title}
+      </button>
+      {sub && <span className="home-card-sub">{sub}</span>}
     </div>
   );
 }
 
-/** One horizontally scrolling row ("Trending this week", ...). */
+/** One row ("Trending this week", ...): the same scrolling row as Home. */
 function BrowseRow({
   row,
   onRequest,
@@ -75,51 +58,21 @@ function BrowseRow({
   onRequest: (r: SearchResult) => void;
   onOpen: (r: SearchResult) => void;
 }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const scrollBy = (dir: 1 | -1) => {
-    const el = scroller.current;
-    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.85, behavior: 'smooth' });
-  };
   if (!row.items.length) return null;
   return (
-    <section className="browse-row">
-      <header className="browse-row-header">
-        <h2>{row.title}</h2>
-        <div className="row browse-arrows">
-          <button className="icon-btn row-arrow" aria-label={`Scroll ${row.title} left`} onClick={() => scrollBy(-1)}>
-            <Chevron dir="left" size={16} />
-          </button>
-          <button className="icon-btn row-arrow" aria-label={`Scroll ${row.title} right`} onClick={() => scrollBy(1)}>
-            <Chevron dir="right" size={16} />
-          </button>
-        </div>
-      </header>
-      <div className="browse-scroller" ref={scroller}>
-        {row.items.map((r) => (
-          <ResultCard key={`${r.type}-${r.tmdbId ?? r.anilistId}`} r={r} onRequest={onRequest} onOpen={onOpen} />
-        ))}
-      </div>
-    </section>
+    <Rail title={row.title}>
+      {row.items.map((r) => (
+        <ResultCard key={`${r.type}-${r.tmdbId ?? r.anilistId}`} r={r} onRequest={onRequest} onOpen={onOpen} />
+      ))}
+    </Rail>
   );
 }
 
 function BrowseSkeleton() {
   return (
     <>
-      {[0, 1].map((i) => (
-        <section key={i} className="browse-row" aria-hidden>
-          <header className="browse-row-header">
-            <div className="skeleton skeleton-title" />
-          </header>
-          <div className="browse-scroller">
-            {Array.from({ length: 8 }, (_, j) => (
-              <div key={j} className="card skeleton-card">
-                <div className="poster skeleton" />
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
+      <RailSkeleton />
+      <RailSkeleton />
     </>
   );
 }

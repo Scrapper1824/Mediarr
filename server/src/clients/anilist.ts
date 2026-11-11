@@ -301,8 +301,18 @@ function toBrowseResult(m: any): SearchResult {
     year: m.seasonYear ?? m.startDate?.year ?? null,
     poster: m.coverImage?.large ?? null,
     overview: stripHtml(m.description),
-    extra: [m.format === 'TV' ? null : m.format, m.episodes ? `${m.episodes} eps` : null].filter(Boolean).join(' · ') || undefined,
+    extra: browseExtra(m),
   };
+}
+
+const BROWSE_FORMAT: Record<string, string> = { MOVIE: 'Movie', TV_SHORT: 'TV short', SPECIAL: 'Special', OVA: 'OVA', ONA: 'ONA', MUSIC: 'Music video' };
+
+/** "ONA · 12 eps", "1,180 eps" for a show still airing (what's out so far), "Movie" for a film. */
+export function browseExtra(m: { format?: string | null; episodes?: number | null; nextAiringEpisode?: { episode: number } | null }): string | undefined {
+  const format = m.format && m.format !== 'TV' ? (BROWSE_FORMAT[m.format] ?? m.format) : null;
+  const count = m.episodes ?? (m.nextAiringEpisode && m.nextAiringEpisode.episode > 1 ? m.nextAiringEpisode.episode - 1 : null);
+  const eps = m.format === 'MOVIE' || !count ? null : `${count.toLocaleString('en-US')} ep${count === 1 ? '' : 's'}`;
+  return [format, eps].filter(Boolean).join(' · ') || undefined;
 }
 
 /** Curated lists for the Discover page: trending, this season, next season, popular, top rated. */
@@ -310,7 +320,7 @@ export async function browseAnime(now = new Date()): Promise<BrowseRow[]> {
   const cur = animeSeasonOf(now);
   const nextIdx = (SEASONS.indexOf(cur.season) + 1) % 4;
   const next = { season: SEASONS[nextIdx], year: nextIdx === 0 ? cur.year + 1 : cur.year };
-  const BROWSE_FIELDS = `id title { romaji english } format episodes seasonYear startDate { year } coverImage { large } description(asHtml: false)`;
+  const BROWSE_FIELDS = `id title { romaji english } format episodes nextAiringEpisode { episode } seasonYear startDate { year } coverImage { large } description(asHtml: false)`;
   const data = await gql<Record<string, { media: any[] }>>(
     `query ($season: MediaSeason, $year: Int, $nextSeason: MediaSeason, $nextYear: Int) {
       trending: Page(perPage: 20) { media(type: ANIME, isAdult: false, sort: TRENDING_DESC) { ${BROWSE_FIELDS} } }

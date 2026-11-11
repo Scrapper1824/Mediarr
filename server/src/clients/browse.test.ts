@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from '../db.js';
 import { saveSettings } from '../settings.js';
-import { animeSeasonOf } from './anilist.js';
+import { animeSeasonOf, browseExtra } from './anilist.js';
 import { browseTmdb } from './tmdb.js';
 
 describe('browseTmdb', () => {
@@ -12,6 +12,9 @@ describe('browseTmdb', () => {
     calls.length = 0;
     vi.stubGlobal('fetch', async (url: string) => {
       calls.push(new URL(url).pathname);
+      if (/^\/3\/tv\/\d+$/.test(new URL(url).pathname)) {
+        return new Response(JSON.stringify({ id: 1, number_of_episodes: 19 }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       const results = [
         { id: 1, title: 'Dune: Part Two', name: 'Severance', release_date: '2024-03-01', first_air_date: '2022-02-18', poster_path: '/p.jpg', overview: 'x' },
         { id: 2, title: 'No Poster', name: 'No Poster', poster_path: null },
@@ -30,10 +33,23 @@ describe('browseTmdb', () => {
     ]);
   });
 
-  it('builds the show rows', async () => {
+  it('builds the show rows, with each show’s episode count', async () => {
     const rows = await browseTmdb('show');
     expect(rows.map((r) => r.title)).toEqual(['Trending this week', 'Airing today', 'On the air this week', 'Popular', 'Top rated']);
-    expect(rows[1].items[0]).toMatchObject({ type: 'show', title: 'Severance', year: 2022 });
+    expect(rows[1].items[0]).toMatchObject({ type: 'show', title: 'Severance', year: 2022, extra: '19 eps' });
+    // Each show is looked up once, however many rows it's in.
+    expect(calls.filter((c) => c === '/3/tv/1')).toHaveLength(1);
+  });
+});
+
+describe('anime card captions', () => {
+  it('shows the format and how many episodes, counting what has aired for a show still running', () => {
+    expect(browseExtra({ format: 'TV', episodes: 24 })).toBe('24 eps');
+    expect(browseExtra({ format: 'ONA', episodes: 12 })).toBe('ONA · 12 eps');
+    expect(browseExtra({ format: 'TV', episodes: null, nextAiringEpisode: { episode: 1181 } })).toBe('1,180 eps');
+    expect(browseExtra({ format: 'MOVIE', episodes: 1 })).toBe('Movie');
+    // A show that hasn't aired yet has no count.
+    expect(browseExtra({ format: 'TV', episodes: null, nextAiringEpisode: { episode: 1 } })).toBeUndefined();
   });
 });
 
