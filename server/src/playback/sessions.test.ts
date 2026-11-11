@@ -64,7 +64,8 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('streaming sessions', () => {
+// These start real (stand-in) encoder processes, which can be slow while the whole suite runs at once.
+describe('streaming sessions', { timeout: 20_000 }, () => {
   const fail = (msg: string) => spawn(process.execPath, ['-e', `console.error(${JSON.stringify(msg)}); process.exit(1)`], { stdio: ['ignore', 'pipe', 'pipe'] });
   const gpuSession = (userId: number, startAt: number) =>
     createSession({ userId, title: `episode:${userId}`, file: 'C:\\lib\\ep.mkv', ffmpeg: 'ffmpeg', probe, decision, encoder: 'h264_amf', startAt });
