@@ -196,6 +196,7 @@ export default function Detail() {
           <div className="title-hero-info">
             <h1 className="title-name">{m.title}</h1>
             <div className="title-meta">
+              {info.data?.certification && <span className="details-cert">{info.data.certification}</span>}
               {[
                 m.year ? String(m.year) : null,
                 m.type === 'movie' ? 'Movie' : m.type === 'show' ? 'TV show' : 'Anime',
@@ -205,6 +206,7 @@ export default function Detail() {
                     : `${m.episodeFileCount} of ${m.episodeCount} episodes`
                   : null,
                 m.type === 'movie' && m.release_date ? `Released ${formatDate(m.release_date)}` : null,
+                info.data?.runtime ?? null,
                 m.status ? humanStatus(m.status) : null,
               ]
                 .filter(Boolean)
@@ -212,6 +214,11 @@ export default function Detail() {
                   <span key={i}>{t}</span>
                 ))}
               {m.downloading && <span className="badge info">Downloading</span>}
+              {info.data?.links.map((l) => (
+                <a key={l.label} className="details-link" href={l.url} target="_blank" rel="noreferrer noopener">
+                  {l.label} ↗
+                </a>
+              ))}
             </div>
             {info.data && <Ratings ratings={info.data.ratings} />}
             <div className="title-actions">
