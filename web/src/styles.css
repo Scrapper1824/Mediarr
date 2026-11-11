@@ -960,7 +960,16 @@ a.hero-round:hover { text-decoration: none; }
 .notice { background: rgba(255, 255, 255, 0.05); }
 .row-arrow:hover:not(:disabled) { border-color: var(--line-strong); }
 .card.clickable:hover { border-color: transparent; }
-.wl-popover button:hover { background: rgba(255, 255, 255, 0.08); }
+/* The watchlist menu floats over posters: a solid surface, so nothing behind shows through. */
+.wl-popover {
+  background: #1c2029; border: 1px solid var(--line-strong); border-radius: 14px; padding: 6px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.wl-popover button { font-size: 14px; padding: 9px 12px; border-radius: 9px; color: var(--text); }
+.wl-popover button:hover, .wl-popover button:focus-visible { background: rgba(255, 255, 255, 0.09); outline: none; }
+.wl-popover button.active { color: var(--accent); background: rgba(242, 181, 68, 0.1); }
+.wl-popover button.danger { color: var(--danger); border-top-color: var(--line-strong); border-radius: 9px; margin-top: 4px; }
+.wl-popover button.danger:hover { background: rgba(242, 109, 109, 0.12); }
 
 /* Library pages */
 .library-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 30px; }
