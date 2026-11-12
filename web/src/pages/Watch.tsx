@@ -282,30 +282,6 @@ function Player({ info }: { info: PlayInfo }) {
   const [subtitle, setSubtitle] = useState<number | null>(() => startSubtitle(info, pickAudio(info), user));
   const [autoSkip, setAutoSkip] = useState(() => loadAutoSkip(user));
   const [debug, setDebug] = useState(() => new URLSearchParams(window.location.search).has('debug'));
-  // Fullscreen workaround. Chrome on Windows stops updating the controls over a fullscreen video unless
-  // something reads their state (as the Shift+D readout does). So, while fullscreen, 4 times a second: read
-  // the bars' style and position and rewrite an invisible line of text. Fading is also off in fullscreen.
-  // Test modes: ?fs=nofade (no fading only), ?fs=beat (reading only), ?fs=off (neither).
-  const fsMode = useState(() => new URLSearchParams(window.location.search).get('fs') ?? 'both')[0];
-  const keepDrawn = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (fsMode !== 'both' && fsMode !== 'beat') return;
-    const t = window.setInterval(() => {
-      const el = keepDrawn.current;
-      const w = shell.current;
-      if (!el || !w || !document.fullscreenElement) return;
-      let out = '';
-      for (const bar of w.querySelectorAll<HTMLElement>('.watch-top, .watch-bottom')) {
-        const cs = getComputedStyle(bar);
-        const r = bar.getBoundingClientRect();
-        out += `${cs.opacity}${cs.visibility[0]}${Math.round(r.top)} `;
-      }
-      const wr = w.getBoundingClientRect();
-      const mid = document.elementFromPoint(wr.left + wr.width / 2, wr.top + wr.height / 2);
-      el.textContent = `${out}${mid?.tagName ?? ''}${Date.now() % 1000}`;
-    }, 250);
-    return () => window.clearInterval(t);
-  }, [fsMode]);
   /** When you last moved the playhead yourself: landing inside an intro on purpose is never undone. */
   const lastUserSeek = useRef(0);
   /** Intros/credits already skipped (or let play) this episode, so each is handled once. */
@@ -762,7 +738,6 @@ function Player({ info }: { info: PlayInfo }) {
     <div
       ref={shell}
       data-debug={debug || undefined}
-      data-fs-fade={fsMode === 'beat' || fsMode === 'off' ? '' : undefined}
       className={`watch${controls || !playing ? ' show-controls' : ''}`}
       onTouchStart={poke}
     >
@@ -865,9 +840,6 @@ function Player({ info }: { info: PlayInfo }) {
         </div>
       )}
 
-      {/* Always drawn over the video. Without anything on top, Chrome (Windows) hands a fullscreen video
-          straight to the graphics card and then doesn't redraw the controls when they come back. */}
-      <div ref={keepDrawn} className="watch-keepdrawn" data-fs={fsMode} aria-hidden />
       {debug && <DiagReadout diag={diag} controls={controls} playing={playing} shell={shell} />}
       <div className="watch-top" {...onControls}>
         <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
