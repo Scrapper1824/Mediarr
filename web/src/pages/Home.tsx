@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, type SearchResult } from '../api';
-import { shortEp, type ContinueItem, type HomeData, type HomeTitle, type PlayableTitle } from '../home';
+import { cardStill, shortEp, type ContinueItem, type HomeData, type HomeTitle, type PlayableTitle } from '../home';
 import HomeHero from '../components/HomeHero';
 import MediaDetails from '../components/MediaDetails';
 import Rail, { RailSkeleton } from '../components/Rail';
@@ -20,16 +20,18 @@ const infoFor = (t: HomeTitle): SearchResult => ({
 });
 
 function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void }) {
-  const art = item.backdrop ?? item.poster;
+  // The episode's own still first, then the show's backdrop, then its poster (blurred).
+  const wide = item.still ? cardStill(item.still) : item.backdrop;
+  const art = wide ?? item.poster;
   const sub = item.upNext
     ? `Up next · ${shortEp(item.label ?? '')}`
     : [item.label ? shortEp(item.label) : null, item.minutesLeft ? `${item.minutesLeft} min left` : null].filter(Boolean).join(' · ');
   return (
     <div className="home-card">
       <Link className="home-thumb-link" to={`/watch/${item.kind}/${item.id}`} aria-label={`${item.upNext ? 'Play' : 'Resume'} ${item.title}${item.label ? ` ${shortEp(item.label)}` : ''}`}>
-        <div className={`home-thumb${item.backdrop ? '' : ' from-poster'}`}>
+        <div className={`home-thumb${wide ? '' : ' from-poster'}`}>
           {art ? <img src={art} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{item.title.slice(0, 1)}</div>}
-          {!item.backdrop && <span className="home-thumb-title">{item.title}</span>}
+          {!wide && <span className="home-thumb-title">{item.title}</span>}
           <span className="home-play-badge" aria-hidden>
             ▶
           </span>

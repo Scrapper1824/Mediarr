@@ -37,6 +37,8 @@ export interface PlayableTitle extends HomeTitle {
 export interface ContinueItem extends HomeTitle, PlayTarget {
   upNext: boolean;
   updatedAt: string;
+  /** This episode's still, when known. */
+  still: string | null;
 }
 export interface HomeData {
   featured: HomeFeatured[];
@@ -47,6 +49,9 @@ export interface HomeData {
 
 /** TMDB backdrops are stored at a size for cards; the full-width banner asks for the sharp one. */
 export const sharp = (url: string) => url.replace('image.tmdb.org/t/p/w1280/', 'image.tmdb.org/t/p/original/');
+
+/** Episode stills are stored small (for the episode list); a card asks TMDB for a sharper copy. */
+export const cardStill = (url: string) => url.replace('image.tmdb.org/t/p/w300/', 'image.tmdb.org/t/p/w780/');
 
 /** "S1 E5" from "S01E05". */
 export const shortEp = (label: string) => label.replace(/^S0?(\d+)E0?(\d+)$/, 'S$1 E$2');

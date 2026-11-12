@@ -216,8 +216,12 @@ describe('the Home page', () => {
     db.prepare("UPDATE watch_progress SET updated_at = '2026-01-01T00:00:00.000Z' WHERE episode_id = ?").run(show.eps[4]);
     await call(viewer, 'PUT', `/api/play/episode/${show.eps[5]}/progress`, { position: 8, duration: 1440 });
 
+    // Episode 6 has a still: the card shows it instead of the show's backdrop.
+    db.prepare('UPDATE episodes SET still = ? WHERE id = ?').run('https://image.tmdb.org/t/p/w300/ep6.jpg', show.eps[5]);
     const cont = (await call(viewer, 'GET', '/api/home')).json().continue;
-    expect(cont).toEqual([expect.objectContaining({ title: 'Witch Watch', id: show.eps[5], label: 'S01E06', upNext: true, resume: false })]);
+    expect(cont).toEqual([
+      expect.objectContaining({ title: 'Witch Watch', id: show.eps[5], label: 'S01E06', upNext: true, resume: false, still: 'https://image.tmdb.org/t/p/w300/ep6.jpg' }),
+    ]);
     // A movie that was only opened for a moment isn't "continue watching".
     const movie = addMovie();
     await call(viewer, 'PUT', `/api/play/movie/${movie}/progress`, { position: 5, duration: 9000 });

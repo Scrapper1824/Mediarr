@@ -37,6 +37,8 @@ export interface PlayTarget {
 export interface ContinueItem extends HomeTitle, PlayTarget {
   upNext: boolean;
   updatedAt: string;
+  /** A still from this episode (TMDB / Kitsu), for the card; null for movies and when there's none. */
+  still: string | null;
 }
 
 /** A poster on Home: what clicking it plays (null if nothing can be played). */
@@ -120,23 +122,23 @@ export function continueWatching(userId: number, limit = 20): ContinueItem[] {
     if (!r.watched && r.position > 30) {
       if (!r.episode_id) {
         if (!media.has_file || !media.file_path) continue;
-        items.push({ ...base, kind: 'movie', id: media.id, label: null, episodeTitle: null, resume: true, position: r.position, duration: r.duration, minutesLeft: minutesLeft(r.position, r.duration), upNext: false, updatedAt: r.updated_at });
+        items.push({ ...base, still: null, kind: 'movie', id: media.id, label: null, episodeTitle: null, resume: true, position: r.position, duration: r.duration, minutesLeft: minutesLeft(r.position, r.duration), upNext: false, updatedAt: r.updated_at });
       } else {
         const ep = db.prepare('SELECT * FROM episodes WHERE id = ?').get(r.episode_id) as EpisodeRow | undefined;
         if (!ep?.file_path || !ep.has_file) continue;
-        items.push({ ...base, kind: 'episode', id: ep.id, label: epLabel(ep), episodeTitle: ep.title, resume: true, position: r.position, duration: r.duration, minutesLeft: minutesLeft(r.position, r.duration), upNext: false, updatedAt: r.updated_at });
+        items.push({ ...base, still: ep.still, kind: 'episode', id: ep.id, label: epLabel(ep), episodeTitle: ep.title, resume: true, position: r.position, duration: r.duration, minutesLeft: minutesLeft(r.position, r.duration), upNext: false, updatedAt: r.updated_at });
       }
     } else if (!r.watched && r.episode_id) {
       // Barely started (the player moved on to it after the last one, then you stopped): it's still up next.
       const ep = db.prepare('SELECT * FROM episodes WHERE id = ?').get(r.episode_id) as EpisodeRow | undefined;
       if (!ep?.file_path || !ep.has_file) continue;
-      items.push({ ...base, kind: 'episode', id: ep.id, label: epLabel(ep), episodeTitle: ep.title, resume: false, position: 0, duration: 0, minutesLeft: null, upNext: true, updatedAt: r.updated_at });
+      items.push({ ...base, still: ep.still, kind: 'episode', id: ep.id, label: epLabel(ep), episodeTitle: ep.title, resume: false, position: 0, duration: 0, minutesLeft: null, upNext: true, updatedAt: r.updated_at });
     } else if (r.watched && r.episode_id) {
       const eps = playableEpisodes(media.id);
       const i = eps.findIndex((e) => e.id === r.episode_id);
       const next = i >= 0 ? eps[i + 1] : undefined;
       if (next && !progressOf(userId, media.id, next.id).watched) {
-        items.push({ ...base, kind: 'episode', id: next.id, label: epLabel(next), episodeTitle: next.title, resume: false, position: 0, duration: 0, minutesLeft: null, upNext: true, updatedAt: r.updated_at });
+        items.push({ ...base, still: next.still, kind: 'episode', id: next.id, label: epLabel(next), episodeTitle: next.title, resume: false, position: 0, duration: 0, minutesLeft: null, upNext: true, updatedAt: r.updated_at });
       }
     }
     if (items.length >= limit) break;
