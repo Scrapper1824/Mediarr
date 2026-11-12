@@ -68,7 +68,16 @@ export async function buildApp(opts: {
 
   const webDist = opts.webDist === undefined ? path.resolve(import.meta.dirname, '../../web/dist') : opts.webDist;
   if (webDist && fs.existsSync(webDist)) {
-    await app.register(fastifyStatic, { root: webDist });
+    await app.register(fastifyStatic, {
+      root: webDist,
+      cacheControl: false,
+      // The page is never kept by a browser or a proxy (Cloudflare), so an update takes effect on the next
+      // load; its scripts/styles/fonts have the build's hash in their names, so they can be kept for good.
+      setHeaders: (res, filePath) => {
+        const immutable = /[\\/]assets[\\/]/.test(filePath);
+        res.setHeader('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache, private');
+      },
+    });
   }
   // Client-side routing: unknown non-API paths get the web app (which then shows the login screen).
   app.setNotFoundHandler((req, reply) => {
