@@ -155,6 +155,48 @@ function saveCaptions(user: string | undefined, kind: AudioKind, choice: Caption
   }
 }
 
+/** Diagnostics readout for the player (Shift+D): mouse events, control state and where the bars are. */
+function DiagReadout({
+  diag,
+  controls,
+  playing,
+  shell,
+}: {
+  diag: React.MutableRefObject<{ moves: number; accepted: number; ignored: number; shows: number; hides: number; last: null | { x: number; y: number; mx: number; my: number; target: string; at: number } }>;
+  controls: boolean;
+  playing: boolean;
+  shell: React.RefObject<HTMLDivElement>;
+}) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(t);
+  }, []);
+  const d = diag.current;
+  const fs = document.fullscreenElement as HTMLElement | null;
+  const w = shell.current;
+  const bar = w?.querySelector('.watch-bottom') as HTMLElement | null;
+  const cs = bar ? getComputedStyle(bar) : null;
+  const r = bar?.getBoundingClientRect();
+  const wr = w?.getBoundingClientRect();
+  const mid = wr ? document.elementFromPoint(wr.left + wr.width / 2, wr.top + wr.height / 2) : null;
+  const lines = [
+    `fullscreen: ${fs ? fs.tagName.toLowerCase() + '.' + (fs.className.split(' ')[0] || '') : 'no'}   window: ${window.innerWidth}x${window.innerHeight}`,
+    `mouse moves: ${d.moves}   accepted: ${d.accepted}   ignored: ${d.ignored}`,
+    d.last
+      ? `last move: x ${d.last.x} y ${d.last.y}   movement ${d.last.mx},${d.last.my}   on ${d.last.target}   ${Math.round((Date.now() - d.last.at) / 100) / 10}s ago`
+      : 'last move: none yet',
+    `controls state: ${controls ? 'on' : 'off'}   playing: ${playing ? 'yes' : 'no'}   class: ${w?.classList.contains('show-controls') ? 'show-controls' : '-'}   shows ${d.shows} / hides ${d.hides}`,
+    cs && r ? `bottom bar: opacity ${cs.opacity}  visibility ${cs.visibility}  top ${Math.round(r.top)} height ${Math.round(r.height)}` : 'bottom bar: not found',
+    `player box: ${wr ? `${Math.round(wr.width)}x${Math.round(wr.height)} at ${Math.round(wr.left)},${Math.round(wr.top)}` : '?'}   centre: ${mid ? mid.tagName.toLowerCase() + '.' + ((mid as HTMLElement).className?.toString().split(' ')[0] || '') : '?'}`,
+  ];
+  return (
+    <pre className="watch-diag" aria-hidden>
+      {lines.join('\n')}
+    </pre>
+  );
+}
+
 /** Auto-skip of intros and credits: off unless you turned it on (this account, this browser). */
 const autoSkipKey = (user: string) => `mediarr.autoskip.v1:${user}`;
 function loadAutoSkip(user: string | undefined): boolean {
@@ -239,6 +281,7 @@ function Player({ info }: { info: PlayInfo }) {
   const user = useAuth().data?.user?.username;
   const [subtitle, setSubtitle] = useState<number | null>(() => startSubtitle(info, pickAudio(info), user));
   const [autoSkip, setAutoSkip] = useState(() => loadAutoSkip(user));
+  const [debug, setDebug] = useState(() => new URLSearchParams(window.location.search).has('debug'));
   /** When you last moved the playhead yourself: landing inside an intro on purpose is never undone. */
   const lastUserSeek = useRef(0);
   /** Intros/credits already skipped (or let play) this episode, so each is handled once. */
@@ -452,9 +495,20 @@ function Player({ info }: { info: PlayInfo }) {
   menuOpen.current = menu !== null;
   const lastPointer = useRef<{ x: number; y: number } | null>(null);
   const shown = useRef(true);
+  /** Diagnostics (Shift+D): what the mouse and the controls are doing. */
+  const diag = useRef({
+    moves: 0,
+    accepted: 0,
+    ignored: 0,
+    shows: 0,
+    hides: 0,
+    last: null as null | { x: number; y: number; mx: number; my: number; target: string; at: number },
+  });
   const show = (on: boolean) => {
     if (shown.current === on) return; // no re-render for every mouse event
     shown.current = on;
+    if (on) diag.current.shows++;
+    else diag.current.hides++;
     setControls(on);
   };
   const scheduleHide = () => {
@@ -479,9 +533,24 @@ function Player({ info }: { info: PlayInfo }) {
   pokeRef.current = poke;
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
+      const d = diag.current;
+      d.moves++;
+      const t = e.target as HTMLElement | null;
+      d.last = {
+        x: Math.round(e.clientX),
+        y: Math.round(e.clientY),
+        mx: e.movementX ?? 0,
+        my: e.movementY ?? 0,
+        target: t ? `${t.tagName.toLowerCase()}${typeof t.className === 'string' && t.className ? '.' + t.className.split(' ')[0] : ''}` : '?',
+        at: Date.now(),
+      };
       const moved = (e.movementX ?? 0) !== 0 || (e.movementY ?? 0) !== 0;
       const anchor = lastPointer.current;
-      if (!moved && anchor && Math.abs(e.clientX - anchor.x) < 3 && Math.abs(e.clientY - anchor.y) < 3) return;
+      if (!moved && anchor && Math.abs(e.clientX - anchor.x) < 3 && Math.abs(e.clientY - anchor.y) < 3) {
+        d.ignored++;
+        return;
+      }
+      d.accepted++;
       lastPointer.current = { x: e.clientX, y: e.clientY };
       pokeRef.current();
     };
@@ -511,6 +580,7 @@ function Player({ info }: { info: PlayInfo }) {
       else if (e.key === 'f') fullscreen();
       else if (e.key === 'm') v.muted = !v.muted;
       else if (e.key === 'N' && e.shiftKey) goNext();
+      else if (e.key === 'D' && e.shiftKey) setDebug((v) => !v);
       else if (e.key === 'P' && e.shiftKey) goPrev();
       else if (e.key === 'Escape' && menu) setMenu(null);
       else return;
@@ -667,6 +737,7 @@ function Player({ info }: { info: PlayInfo }) {
   return (
     <div
       ref={shell}
+      data-debug={debug || undefined}
       className={`watch${controls || !playing ? ' show-controls' : ''}`}
       onTouchStart={poke}
     >
@@ -769,6 +840,7 @@ function Player({ info }: { info: PlayInfo }) {
         </div>
       )}
 
+      {debug && <DiagReadout diag={diag} controls={controls} playing={playing} shell={shell} />}
       <div className="watch-top" {...onControls}>
         <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
           ←
