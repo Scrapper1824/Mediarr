@@ -472,9 +472,11 @@ function Player({ info }: { info: PlayInfo }) {
     scheduleHide();
   };
   const onPointerMove = (e: React.MouseEvent) => {
-    const last = lastPointer.current;
+    // Measured from where the pointer was when the controls last reacted, not from the previous event:
+    // a real mouse sends many 1–2 px steps that add up, while Chrome's phantom "moves" stay on the spot.
+    const anchor = lastPointer.current;
+    if (anchor && Math.abs(e.clientX - anchor.x) < 3 && Math.abs(e.clientY - anchor.y) < 3) return;
     lastPointer.current = { x: e.clientX, y: e.clientY };
-    if (last && Math.abs(e.clientX - last.x) < 3 && Math.abs(e.clientY - last.y) < 3) return;
     poke();
   };
   const onControls = {
