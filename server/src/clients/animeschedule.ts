@@ -9,6 +9,8 @@ export interface DubSchedule {
   /** An English dub exists or is announced. */
   dubExists: boolean;
   subExists: boolean;
+  /** The show's own first episode in Japan (ISO), null when unknown. */
+  premier: string | null;
   /** First dubbed episode (ISO), null when unknown. */
   dubPremier: string | null;
   /** A current/past pause in the dub. */
@@ -36,6 +38,7 @@ export function parseDubSchedule(a: Record<string, unknown>): DubSchedule {
   return {
     dubExists: !!a.dubExists,
     subExists: !!a.subExists,
+    premier: realDate(a.premier),
     dubPremier: realDate(a.dubPremier),
     dubDelayedFrom: realDate(a.dubDelayedFrom),
     dubDelayedUntil: realDate(a.dubDelayedUntil),

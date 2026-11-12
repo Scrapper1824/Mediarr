@@ -44,6 +44,7 @@ function dubLine(a: AvailabilityData): string {
   if (d.startsAt) return `Starts ${when(d.startsAt)}${d.allOutBy ? `, all out around ${when(d.allOutBy)}` : ''}`;
   if (d.out === null) return 'Available, episode count unknown';
   const about = d.estimated ? 'About ' : '';
+  if (!a.total) return `${about}${d.out} out so far`;
   return `${about}${d.out} of ${a.total} out${d.allOutBy ? `, all out around ${when(d.allOutBy)}` : ''}`;
 }
 

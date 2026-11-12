@@ -9,6 +9,7 @@ const airing = (over: Partial<AiringInfo>): AiringInfo => ({ format: 'TV', statu
 const dub = (over: Partial<DubSchedule>): DubSchedule => ({
   dubExists: true,
   subExists: true,
+  premier: '2026-10-02T00:00:00Z',
   dubPremier: null,
   dubDelayedFrom: null,
   dubDelayedUntil: null,
@@ -70,6 +71,26 @@ describe('what is out, subbed and dubbed', () => {
     // Three episodes dropped at once on the premiere.
     const batch = availability(airing({ status: 'FINISHED' }), dub({ dubPremier: '2026-10-16T00:00:00Z', dubBatches: [{ date: '2026-10-16T00:00:00Z', extra: 2 }] }), NOW);
     expect(batch.dub!.out).toBe(6);
+  });
+
+  it('counts a simuldub weekly even when the show\'s length isn\'t announced yet', () => {
+    // The World's Strongest Witch, 11 Nov: 6 subbed, dub weekly since 21 Oct → 4.
+    const witch = availability(
+      airing({ episodes: null, next: { episode: 7, at: day('2026-11-18') } }),
+      dub({ premier: '2026-10-07T00:00:00Z', dubPremier: '2026-10-21T00:00:00Z', episodes: null }),
+      Date.parse('2026-11-11T12:00:00Z'),
+    );
+    expect(witch.total).toBeNull();
+    expect(witch.dub).toMatchObject({ exists: true, out: 4, complete: false, allOutBy: null, estimated: true });
+    // A long runner whose dub "premiere" is a restart years later: no guess.
+    const onePiece = availability(
+      airing({ episodes: null, next: { episode: 1181, at: day('2027-01-03') } }),
+      dub({ premier: '1999-10-20T00:00:00Z', dubPremier: '2020-11-24T00:00:00Z', episodes: null }),
+      NOW,
+    );
+    expect(onePiece.dub).toMatchObject({ exists: true, out: null });
+    // AnimeSchedule's length is used when AniList hasn't got one.
+    expect(availability(airing({ episodes: null, next: { episode: 7, at: day('2026-11-13') } }), dub({ episodes: 12 }), NOW).total).toBe(12);
   });
 
   it('reads AnimeSchedule data, treating its "no date" value as empty', () => {

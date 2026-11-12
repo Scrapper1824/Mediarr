@@ -76,7 +76,15 @@ export function dubAvailability(d: DubSchedule, sub: Availability['sub'], total:
     const allOutBy = total ? new Date(premier + Math.max(0, total - 1 - extraAll) * WEEK + (pauseWeeksTotal ?? 0) * WEEK).toISOString() : null;
     return { ...base, exists: true, out: 0, complete: false, startsAt: d.dubPremier, allOutBy, paused: null };
   }
-  if (!total) return { ...base, exists: true, out: null, complete: false, startsAt: null, allOutBy: null, paused: pausedNow ? { until: d.dubDelayedUntil } : null };
+  if (!total) {
+    // Length not announced (still airing). A simuldub that started with the show can still be counted
+    // weekly, up to what's subbed. A dub that started years after the show (a long runner like One Piece,
+    // where the "premiere" is a later restart) can't, so that stays unknown.
+    const simuldub = !!d.premier && premier - ms(d.premier) < 365 * 24 * 3600_000;
+    const weekly = Math.floor((now - premier) / WEEK) + 1 - pauseWeeksSoFar + extraSoFar;
+    const out = simuldub && sub.out > 0 ? Math.max(0, Math.min(sub.out, weekly)) : null;
+    return { ...base, exists: true, out, complete: false, startsAt: null, allOutBy: null, paused: pausedNow ? { until: d.dubDelayedUntil } : null };
+  }
 
   const weekly = Math.floor((now - premier) / WEEK) + 1 - pauseWeeksSoFar + extraSoFar;
   // A dub can't run ahead of the subs while the show is still airing.
@@ -92,7 +100,8 @@ export function dubAvailability(d: DubSchedule, sub: Availability['sub'], total:
 
 export function availability(a: AiringInfo, d: DubSchedule | null, now = Date.now()): Availability {
   const sub = subAvailability(a, now);
-  const total = a.episodes ?? (sub.complete ? sub.out : null);
+  // AniList's count first; AnimeSchedule sometimes knows the length when AniList doesn't yet.
+  const total = a.episodes ?? d?.episodes ?? (sub.complete ? sub.out : null);
   return {
     total,
     single: a.format === 'MOVIE' || (a.episodes === 1 && sub.complete),
