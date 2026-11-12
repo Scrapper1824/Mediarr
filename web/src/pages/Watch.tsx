@@ -840,6 +840,9 @@ function Player({ info }: { info: PlayInfo }) {
         </div>
       )}
 
+      {/* Always drawn over the video. Without anything on top, Chrome (Windows) hands a fullscreen video
+          straight to the graphics card and then doesn't redraw the controls when they come back. */}
+      <div className="watch-keepdrawn" aria-hidden />
       {debug && <DiagReadout diag={diag} controls={controls} playing={playing} shell={shell} />}
       <div className="watch-top" {...onControls}>
         <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
