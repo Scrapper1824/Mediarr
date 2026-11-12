@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import Modal from './Modal';
@@ -29,22 +29,31 @@ const STEPS = [
   ['restarting', 'Restarting Mediarr'],
 ] as const;
 
-/** Waits for Mediarr to go away and come back after the restart, then reloads the page. */
-async function waitForRestart(onTick: (s: string) => void) {
+/**
+ * Waits for the restarted Mediarr, then reloads the page. "Back" means it answers again after being
+ * unreachable, or it already answers with the new version (a quick restart can fall between two checks).
+ */
+async function waitForRestart(fromVersion: string | null, onTick: (s: string) => void) {
   const deadline = Date.now() + 5 * 60_000;
   let wentDown = false;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const up = await fetch('/api/auth/status', { cache: 'no-store' })
-      .then((r) => r.ok)
-      .catch(() => false);
-    if (!up) {
+    const r = await fetch('/api/system/update', { cache: 'no-store', headers: { 'x-requested-with': 'mediarr' } }).catch(() => null);
+    const info = r?.ok ? ((await r.json().catch(() => null)) as UpdateInfo | null) : null;
+    const version = info?.current;
+    // Still mid-update (a network blip, not the restart): keep waiting.
+    if (info && ['downloading', 'installing', 'building'].includes(info.job.state)) {
+      await new Promise((res) => setTimeout(res, 1500));
+      continue;
+    }
+    if (!version) {
       wentDown = true;
       onTick('Waiting for Mediarr to start again…');
-    } else if (wentDown) {
+    } else if (wentDown || (fromVersion && version !== fromVersion)) {
+      onTick('Mediarr is back. Reloading…');
       window.location.reload();
       return;
     }
+    await new Promise((res) => setTimeout(res, 1500));
   }
   onTick('Mediarr is taking a while to come back. Refresh the page in a minute.');
 }
@@ -54,6 +63,9 @@ export default function UpdateDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [started, setStarted] = useState(false);
   const [waiting, setWaiting] = useState<string | null>(null);
+  /** The version running when the update started, and whether its steps were seen. */
+  const fromVersion = useRef<string | null>(null);
+  const sawSteps = useRef(false);
   const info = useQuery({
     queryKey: ['update'],
     queryFn: () => api.get<UpdateInfo>('/api/system/update'),
@@ -62,6 +74,7 @@ export default function UpdateDialog({ onClose }: { onClose: () => void }) {
   const install = useMutation({
     mutationFn: () => api.post<UpdateInfo>('/api/system/update/install'),
     onSuccess: (d) => {
+      fromVersion.current = d.current;
       qc.setQueryData(['update'], d);
       setStarted(true);
     },
@@ -69,19 +82,30 @@ export default function UpdateDialog({ onClose }: { onClose: () => void }) {
 
   const d = info.data;
   const job = d?.job;
-  const busy = started && job && !['failed', 'idle', 'done'].includes(job.state);
+  const busy = (started && job && !['failed', 'idle', 'done'].includes(job.state)) || !!waiting;
 
+  if (job && STEPS.some(([st]) => st === job.state)) sawSteps.current = true;
+  // The restart shows up as any of: the "restarting" step; Mediarr not answering; a new version; or the
+  // steps gone again (the restarted process knows nothing of the update it came from).
+  const restarted =
+    started &&
+    !waiting &&
+    job?.state !== 'failed' &&
+    (job?.state === 'restarting' ||
+      info.isError ||
+      (!!d && !!fromVersion.current && d.current !== fromVersion.current) ||
+      (sawSteps.current && (job?.state === 'idle' || job?.state === 'done')));
   useEffect(() => {
-    if (job?.state === 'restarting' && !waiting) {
-      setWaiting('Restarting…');
-      void waitForRestart(setWaiting);
-    }
-  }, [job?.state, waiting]);
+    if (!restarted) return;
+    setWaiting('Restarting…');
+    void waitForRestart(fromVersion.current, setWaiting);
+  }, [restarted]);
 
   if (!d) return null;
   const latest = d.latest;
   const failed = started && job?.state === 'failed';
-  const stepIndex = STEPS.findIndex(([s]) => s === job?.state);
+  // Waiting for the restart: everything before it is done.
+  const stepIndex = waiting ? STEPS.length - 1 : STEPS.findIndex(([s]) => s === job?.state);
 
   return (
     <Modal title={busy ? 'Updating Mediarr' : 'Update available'} onClose={busy ? () => {} : onClose}>
