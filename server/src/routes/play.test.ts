@@ -179,6 +179,22 @@ describe('the Home page', () => {
     expect(theirs.featured.find((f: { title: string }) => f.title === 'Severance').play).toMatchObject({ id: show.eps[0] });
   });
 
+  it('keeps a show in Continue watching when the next episode was only just opened', async () => {
+    const { viewer } = await users();
+    const show = addSeries('anime', 'Witch Watch', 6, 25);
+    // Episode 5 finished; the player moved on to episode 6 and it was closed after a few seconds.
+    await call(viewer, 'PUT', `/api/play/episode/${show.eps[4]}/progress`, { position: 1400, duration: 1440 });
+    db.prepare("UPDATE watch_progress SET updated_at = '2026-01-01T00:00:00.000Z' WHERE episode_id = ?").run(show.eps[4]);
+    await call(viewer, 'PUT', `/api/play/episode/${show.eps[5]}/progress`, { position: 8, duration: 1440 });
+
+    const cont = (await call(viewer, 'GET', '/api/home')).json().continue;
+    expect(cont).toEqual([expect.objectContaining({ title: 'Witch Watch', id: show.eps[5], label: 'S01E06', upNext: true, resume: false })]);
+    // A movie that was only opened for a moment isn't "continue watching".
+    const movie = addMovie();
+    await call(viewer, 'PUT', `/api/play/movie/${movie}/progress`, { position: 5, duration: 9000 });
+    expect((await call(viewer, 'GET', '/api/home')).json().continue.map((c: { title: string }) => c.title)).toEqual(['Witch Watch']);
+  });
+
   it('plays what you watched most recently, the same on Home and the title page', async () => {
     const { viewer } = await users();
     const show = addSeries('show', 'Severance', 3);

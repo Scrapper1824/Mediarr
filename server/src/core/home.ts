@@ -126,6 +126,11 @@ export function continueWatching(userId: number, limit = 20): ContinueItem[] {
         if (!ep?.file_path || !ep.has_file) continue;
         items.push({ ...base, kind: 'episode', id: ep.id, label: epLabel(ep), episodeTitle: ep.title, resume: true, position: r.position, duration: r.duration, minutesLeft: minutesLeft(r.position, r.duration), upNext: false, updatedAt: r.updated_at });
       }
+    } else if (!r.watched && r.episode_id) {
+      // Barely started (the player moved on to it after the last one, then you stopped): it's still up next.
+      const ep = db.prepare('SELECT * FROM episodes WHERE id = ?').get(r.episode_id) as EpisodeRow | undefined;
+      if (!ep?.file_path || !ep.has_file) continue;
+      items.push({ ...base, kind: 'episode', id: ep.id, label: epLabel(ep), episodeTitle: ep.title, resume: false, position: 0, duration: 0, minutesLeft: null, upNext: true, updatedAt: r.updated_at });
     } else if (r.watched && r.episode_id) {
       const eps = playableEpisodes(media.id);
       const i = eps.findIndex((e) => e.id === r.episode_id);
