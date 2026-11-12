@@ -444,13 +444,50 @@ function Player({ info }: { info: PlayInfo }) {
   const goNext = () => goTo(info.next);
   const goPrev = () => goTo(info.prev);
 
-  const poke = () => {
-    setControls(true);
+  // Controls: shown on any real mouse movement, hidden 3 s later while playing. They stay up while the
+  // pointer is on them or a menu is open. Chrome also sends "moves" when nothing moved (e.g. when the
+  // cursor hides in fullscreen); those are ignored, or the controls would flash back right after hiding.
+  const overControls = useRef(false);
+  const menuOpen = useRef(false);
+  menuOpen.current = menu !== null;
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  const shown = useRef(true);
+  const show = (on: boolean) => {
+    if (shown.current === on) return; // no re-render for every mouse event
+    shown.current = on;
+    setControls(on);
+  };
+  const scheduleHide = () => {
     window.clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => {
-      if (!video.current?.paused && !menu) setControls(false);
+    hideTimer.current = window.setTimeout(function hide() {
+      if (overControls.current || menuOpen.current) {
+        hideTimer.current = window.setTimeout(hide, 1000); // look again once they've moved off / closed it
+        return;
+      }
+      if (!video.current?.paused) show(false);
     }, 3000);
   };
+  const poke = () => {
+    show(true);
+    scheduleHide();
+  };
+  const onPointerMove = (e: React.MouseEvent) => {
+    const last = lastPointer.current;
+    lastPointer.current = { x: e.clientX, y: e.clientY };
+    if (last && Math.abs(e.clientX - last.x) < 3 && Math.abs(e.clientY - last.y) < 3) return;
+    poke();
+  };
+  const onControls = {
+    onMouseEnter: () => {
+      overControls.current = true;
+      show(true);
+    },
+    onMouseLeave: () => {
+      overControls.current = false;
+      scheduleHide();
+    },
+  };
+  useEffect(() => () => window.clearTimeout(hideTimer.current), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -620,7 +657,7 @@ function Player({ info }: { info: PlayInfo }) {
     <div
       ref={shell}
       className={`watch${controls || !playing ? ' show-controls' : ''}`}
-      onMouseMove={poke}
+      onMouseMove={onPointerMove}
       onTouchStart={poke}
     >
       <video
@@ -722,7 +759,7 @@ function Player({ info }: { info: PlayInfo }) {
         </div>
       )}
 
-      <div className="watch-top">
+      <div className="watch-top" {...onControls}>
         <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
           ←
         </button>
@@ -732,7 +769,7 @@ function Player({ info }: { info: PlayInfo }) {
         </div>
       </div>
 
-      <div className="watch-bottom" onClick={(e) => e.stopPropagation()}>
+      <div className="watch-bottom" onClick={(e) => e.stopPropagation()} {...onControls}>
         <div
           className="watch-seek"
           ref={seekBox}
