@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, formatDate, type SearchResult } from '../api';
 import Spinner from './Spinner';
+import Icon from './Icon';
 import TrailerPlayer from './TrailerPlayer';
 import { InfoItem, languageName, Ratings, WatchlistButton, type MediaInfo } from './TitleInfo';
 import Availability from './Availability';
@@ -57,7 +58,7 @@ export default function MediaDetails({
         {d?.backdrop && <img className="details-art" src={d.backdrop} alt="" />}
         <div className="details-shade" />
         <button className="hero-round details-close" aria-label="Close" onClick={onClose}>
-          ✕
+          <Icon name="close" size={18} />
         </button>
 
         {/* Only the content scrolls; the artwork behind it stays put and always fills the sheet. */}

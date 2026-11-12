@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Chevron from './Chevron';
+import Icon from './Icon';
 import { useAmbient } from '../ambient';
 import { shortEp, sharp, type HomeFeatured } from '../home';
 
@@ -120,7 +121,7 @@ export default function HomeHero({ items, loading }: { items: HomeFeatured[]; lo
             {p.resume && p.minutesLeft ? <span className="hero-play-left">· {p.minutesLeft} min left</span> : null}
           </Link>
           <Link className="hero-round" to={`/media/${item.mediaId}`} title="More info" aria-label={`More about ${item.title}`}>
-            i
+            <Icon name="infoMark" size={24} />
           </Link>
           {p.resume && p.duration > 0 && (
             <span className="home-hero-progress" aria-label={`${Math.round((p.position / p.duration) * 100)}% watched`}>

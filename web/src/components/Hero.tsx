@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SearchResult } from '../api';
 import Chevron from './Chevron';
+import Icon from './Icon';
 
 export interface FeaturedItem extends SearchResult {
   backdrop: string | null;
@@ -141,7 +142,7 @@ export default function Hero({
             <span className="hero-badge">In library</span>
           ) : (
             <button className="hero-round" title="More info" aria-label={`More about ${item.title}`} onClick={() => (onInfo ?? onRequest)(item)}>
-              i
+              <Icon name="infoMark" size={24} />
             </button>
           )}
         </div>

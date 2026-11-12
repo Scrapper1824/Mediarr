@@ -1134,6 +1134,24 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 .grid .discover-card { min-width: 0; }
 @media (hover: none) { .discover-add { opacity: 1; transform: none; width: 30px; height: 30px; } }
 
+/* Round banner buttons (info, arrows, close): frosted glass with a hairline edge, no heavy white ring. */
+.hero-round {
+  width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; padding: 0;
+  color: #fff; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  font: inherit; cursor: pointer; transition: background 0.18s, border-color 0.18s, transform 0.18s;
+}
+.hero-round:hover { background: rgba(255, 255, 255, 0.22); border-color: rgba(255, 255, 255, 0.4); transform: scale(1.06); }
+.hero-round:active { transform: scale(0.97); }
+.hero-round:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.hero-arrows { gap: 12px; }
+.hero-arrows .hero-round { width: 46px; height: 46px; border-width: 1px; }
+.hero-arrows .hero-round svg { width: 20px; height: 20px; }
+.hero-round svg path { stroke-width: 2.2; }
+.details-close, .trailer-close { width: 40px; height: 40px; }
+@media (prefers-reduced-motion: reduce) { .hero-round, .hero-round:hover, .hero-round:active { transform: none; } }
+
 /* Sub/dub availability (title page and info popup) */
 .availability { margin-top: 18px; padding: 13px 16px 12px; max-width: 640px; border-radius: 14px; background: rgba(255, 255, 255, 0.045); border: 1px solid var(--line); }
 .availability-label { font-size: 13px; font-weight: 650; color: var(--muted); margin-bottom: 6px; }

@@ -17,6 +17,9 @@ const PATHS = {
   search: 'M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15zM16 16l4.5 4.5',
   refresh: 'M19.5 12a7.5 7.5 0 0 1-13.3 4.7M4.5 12a7.5 7.5 0 0 1 13.3-4.7M18 3.5v4h-4M6 20.5v-4h4',
   trash: 'M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5',
+  close: 'M6.5 6.5l11 11M17.5 6.5l-11 11',
+  /** The bare "i" (for buttons that are already round). */
+  infoMark: 'M12 11v7M12 6.5v.5',
   folder: 'M3.5 6.5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z',
 } as const;
 
