@@ -471,14 +471,23 @@ function Player({ info }: { info: PlayInfo }) {
     show(true);
     scheduleHide();
   };
-  const onPointerMove = (e: React.MouseEvent) => {
-    // Measured from where the pointer was when the controls last reacted, not from the previous event:
-    // a real mouse sends many 1–2 px steps that add up, while Chrome's phantom "moves" stay on the spot.
-    const anchor = lastPointer.current;
-    if (anchor && Math.abs(e.clientX - anchor.x) < 3 && Math.abs(e.clientY - anchor.y) < 3) return;
-    lastPointer.current = { x: e.clientX, y: e.clientY };
-    poke();
-  };
+  // Mouse moves anywhere on the page (fullscreen included) show the controls. Listened for on the document,
+  // so nothing in between can swallow them. A real move reports how far the mouse went (movementX/Y);
+  // Chrome's phantom "moves" (when the cursor hides or the layout changes) report none. Only when a browser
+  // gives no movement at all does the position decide (3 px from where the controls last reacted).
+  const pokeRef = useRef(poke);
+  pokeRef.current = poke;
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const moved = (e.movementX ?? 0) !== 0 || (e.movementY ?? 0) !== 0;
+      const anchor = lastPointer.current;
+      if (!moved && anchor && Math.abs(e.clientX - anchor.x) < 3 && Math.abs(e.clientY - anchor.y) < 3) return;
+      lastPointer.current = { x: e.clientX, y: e.clientY };
+      pokeRef.current();
+    };
+    document.addEventListener('mousemove', onMove, true);
+    return () => document.removeEventListener('mousemove', onMove, true);
+  }, []);
   const onControls = {
     onMouseEnter: () => {
       overControls.current = true;
@@ -659,7 +668,6 @@ function Player({ info }: { info: PlayInfo }) {
     <div
       ref={shell}
       className={`watch${controls || !playing ? ' show-controls' : ''}`}
-      onMouseMove={onPointerMove}
       onTouchStart={poke}
     >
       <video
