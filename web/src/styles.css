@@ -618,6 +618,7 @@ select.input option { background: var(--raised); }
 .watch-message { display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; color: #ddd; }
 .watch:not(.show-controls) { cursor: none; }
 .watch-keepdrawn { position: absolute; top: 0; left: 0; width: 24px; height: 24px; z-index: 1; pointer-events: none; background: rgba(0, 0, 0, 0.02); }
+.watch-keepdrawn.box { top: 70px; left: 16px; width: 160px; height: 60px; z-index: 50; background: rgba(0, 0, 0, 0.8); }
 .watch-diag {
   position: absolute; top: 70px; left: 16px; z-index: 50; margin: 0; padding: 10px 12px; max-width: calc(100% - 32px);
   font: 12px/1.5 ui-monospace, Consolas, monospace; color: #9ef0b0; background: rgba(0, 0, 0, 0.8); border: 1px solid #2f6;

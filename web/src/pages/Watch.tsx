@@ -282,6 +282,23 @@ function Player({ info }: { info: PlayInfo }) {
   const [subtitle, setSubtitle] = useState<number | null>(() => startSubtitle(info, pickAudio(info), user));
   const [autoSkip, setAutoSkip] = useState(() => loadAutoSkip(user));
   const [debug, setDebug] = useState(() => new URLSearchParams(window.location.search).has('debug'));
+  // Fullscreen redraw workaround. ?fs=static (layer, no redraws) and ?fs=box (a visible solid box) are for
+  // testing what Chrome needs; ?fs=off turns it off.
+  const fsMode = useState(() => new URLSearchParams(window.location.search).get('fs') ?? 'tick')[0];
+  const keepDrawn = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (fsMode !== 'tick') return;
+    // While fullscreen, repaint the layer 4 times a second (as the debug readout did): Chrome on Windows
+    // otherwise shows the video on its own and stops redrawing the controls over it.
+    let flip = false;
+    const t = window.setInterval(() => {
+      const el = keepDrawn.current;
+      if (!el || !document.fullscreenElement) return;
+      flip = !flip;
+      el.style.backgroundColor = flip ? 'rgba(0, 0, 0, 0.03)' : 'rgba(0, 0, 0, 0.02)';
+    }, 250);
+    return () => window.clearInterval(t);
+  }, [fsMode]);
   /** When you last moved the playhead yourself: landing inside an intro on purpose is never undone. */
   const lastUserSeek = useRef(0);
   /** Intros/credits already skipped (or let play) this episode, so each is handled once. */
@@ -842,7 +859,7 @@ function Player({ info }: { info: PlayInfo }) {
 
       {/* Always drawn over the video. Without anything on top, Chrome (Windows) hands a fullscreen video
           straight to the graphics card and then doesn't redraw the controls when they come back. */}
-      <div className="watch-keepdrawn" aria-hidden />
+      {fsMode !== 'off' && <div ref={keepDrawn} className={`watch-keepdrawn${fsMode === 'box' ? ' box' : ''}`} aria-hidden />}
       {debug && <DiagReadout diag={diag} controls={controls} playing={playing} shell={shell} />}
       <div className="watch-top" {...onControls}>
         <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
