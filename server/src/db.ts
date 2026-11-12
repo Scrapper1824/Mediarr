@@ -288,6 +288,13 @@ function migrate() {
   const epCols = (db.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).map((c) => c.name);
   if (!epCols.includes('overview')) db.exec('ALTER TABLE episodes ADD COLUMN overview TEXT');
   if (!epCols.includes('still')) db.exec('ALTER TABLE episodes ADD COLUMN still TEXT');
+  // Once: series added before episode stills/summaries were stored get refreshed by the next monitor pass
+  // (about a minute after start), instead of waiting up to 12 hours.
+  const marker = 'internal.episodeDetailsBackfill';
+  if (!db.prepare('SELECT 1 FROM settings WHERE key = ?').get(marker)) {
+    db.exec("UPDATE media SET last_refresh = NULL WHERE type IN ('show', 'anime')");
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(marker, JSON.stringify(new Date().toISOString()));
+  }
   const dlCols = (db.prepare('PRAGMA table_info(downloads)').all() as { name: string }[]).map((c) => c.name);
   if (!dlCols.includes('select_files')) {
     db.exec('ALTER TABLE downloads ADD COLUMN select_files INTEGER NOT NULL DEFAULT 0');
