@@ -1041,8 +1041,10 @@ a.hero-round:hover { text-decoration: none; }
 .home-thumb-fallback { color: rgba(255, 255, 255, 0.14); font-family: var(--display); }
 .details-sheet { background: #12151c; }
 /* The info popup still scrolls (wheel, touch, keys) but without a visible scrollbar. */
-.details-sheet { scrollbar-width: none; }
-.details-sheet::-webkit-scrollbar { display: none; }
+.details-sheet { overflow: hidden; display: flex; flex-direction: column; }
+.details-scroll { position: relative; flex: 1; min-height: 0; max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.details-scroll::-webkit-scrollbar { display: none; }
+@media (max-width: 760px) { .details-scroll { max-height: 100vh; } }
 .title-meta .details-cert { font-size: 13px; line-height: 1.4; padding: 0 6px; }
 .title-meta .details-link { font-weight: 500; }
 

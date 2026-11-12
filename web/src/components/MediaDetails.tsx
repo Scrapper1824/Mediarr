@@ -60,6 +60,8 @@ export default function MediaDetails({
           ✕
         </button>
 
+        {/* Only the content scrolls; the artwork behind it stays put and always fills the sheet. */}
+        <div className="details-scroll">
         <div className="details-body">
           {poster ? <img className="details-poster" src={poster} alt="" /> : <div className="details-poster placeholder" />}
 
@@ -125,6 +127,7 @@ export default function MediaDetails({
               {id && <WatchlistButton type={item.type} id={id} info={{ title: item.title, year: item.year, poster: item.poster }} />}
             </div>
           </div>
+        </div>
         </div>
       </div>
       {playing && d?.trailer && (
