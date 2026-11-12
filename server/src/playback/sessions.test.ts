@@ -97,6 +97,12 @@ describe('streaming sessions', { timeout: 20_000 }, () => {
   }, 20_000);
 
   it('serves segments as they are made, and restarts the encoder when you jump ahead', async () => {
+    // A steadier stand-in (50 segments/s): the usual one is so fast that on a busy machine it could reach
+    // segment 300 by itself before the jump, and then there'd rightly be nothing to restart.
+    useLauncher((_file, _args, s, segment) => {
+      launches.push(segment);
+      return spawn(process.execPath, ['-e', FAKE.replace('i < 5 &&', 'i < 1 &&').replace('}, 5);', '}, 20);'), s.dir, String(segment), '360'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    });
     const s = session(1);
     expect(fs.readFileSync(path.join(s.dir, 'main.m3u8'), 'utf8')).toContain('seg359.ts');
     expect(await waitForSegment(s, 0)).toBe(path.join(s.dir, 'seg0.ts'));
