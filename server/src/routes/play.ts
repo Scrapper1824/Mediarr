@@ -268,6 +268,42 @@ export async function playRoutes(app: FastifyInstance) {
   );
 
   /** Watched state of each episode of a title (or the movie), for the library page. */
+  /**
+   * Mark episodes (or a movie: episode 0) watched or not, for you. Several at once are recorded in order,
+   * so the last one counts as your latest and Continue watching offers the next. Unmarking doesn't
+   * change when you last watched.
+   */
+  app.put<{ Params: { id: string }; Body: { episodeIds?: unknown; watched?: unknown } }>('/api/media/:id/watched', async (req, reply) => {
+    const media = getMedia(Number(req.params.id));
+    if (!media) return reply.code(404).send({ error: 'Not found' });
+    const ids = Array.isArray(req.body?.episodeIds) ? req.body.episodeIds.filter((x): x is number => Number.isInteger(x)) : [];
+    if (typeof req.body?.watched !== 'boolean' || !ids.length || ids.length > 5000) return reply.code(400).send({ error: 'Bad request' });
+    let episodes: EpisodeRow[] = [];
+    if (media.type === 'movie') {
+      if (ids.some((x) => x !== 0)) return reply.code(400).send({ error: 'A movie has no episodes' });
+    } else {
+      const wanted = new Set(ids);
+      // Only this title's own episodes, in watching order.
+      episodes = db.prepare('SELECT * FROM episodes WHERE media_id = ? ORDER BY season, episode').all(media.id) as unknown as EpisodeRow[];
+      episodes = episodes.filter((e) => wanted.has(e.id));
+      if (episodes.length !== wanted.size) return reply.code(400).send({ error: 'Unknown episode' });
+    }
+    const userId = req.user!.id;
+    const targets = media.type === 'movie' ? [0] : episodes.map((e) => e.id);
+    if (req.body.watched) {
+      const up = db.prepare(
+        `INSERT INTO watch_progress (user_id, media_id, episode_id, position, duration, watched, updated_at) VALUES (?, ?, ?, 0, 0, 1, ?)
+         ON CONFLICT(user_id, media_id, episode_id) DO UPDATE SET watched = 1, position = 0, updated_at = excluded.updated_at`,
+      );
+      const base = Date.now();
+      targets.forEach((epId, i) => up.run(userId, media.id, epId, new Date(base + i).toISOString()));
+    } else {
+      const down = db.prepare('UPDATE watch_progress SET watched = 0, position = 0 WHERE user_id = ? AND media_id = ? AND episode_id = ?');
+      for (const epId of targets) down.run(userId, media.id, epId);
+    }
+    return { ok: true, count: targets.length };
+  });
+
   app.get<{ Params: { mediaId: string } }>('/api/play/progress/:mediaId', async (req) => {
     const rows = db
       .prepare('SELECT episode_id, position, duration, watched FROM watch_progress WHERE user_id = ? AND media_id = ?')

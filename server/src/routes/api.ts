@@ -66,6 +66,7 @@ function mediaSummary(m: MediaRow) {
   return {
     ...m,
     alt_titles: JSON.parse(m.alt_titles) as string[],
+    season_names: JSON.parse(m.season_names ?? '{}') as Record<string, string>,
     anime_seasons: animeSeasons(m).map((s) => ({ season: s.season, title: s.title, episodes: s.episodes, year: s.year, anilistId: s.anilistIds.at(-1) ?? null })),
     monitored: !!m.monitored,
     has_file: !!m.has_file,

@@ -19,6 +19,8 @@ export interface Media {
   type: MediaType;
   tmdb_id: number | null;
   anilist_id: number | null;
+  /** Shows: TMDB's season names by number. */
+  season_names: Record<string, string>;
   title: string;
   alt_titles: string[];
   year: number | null;
@@ -66,6 +68,10 @@ export interface Episode {
   absolute_number: number | null;
   title: string | null;
   air_date: string | null;
+  /** What happens (TMDB / Kitsu). */
+  overview: string | null;
+  /** A still from the episode. */
+  still: string | null;
   monitored: boolean;
   has_file: boolean;
   file_path: string | null;

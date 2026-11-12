@@ -69,6 +69,7 @@ export const USER_ALLOWED = new Set([
   'GET /api/play/:kind/:id/fonts/:name',
   'PUT /api/play/:kind/:id/progress',
   'GET /api/play/progress/:mediaId',
+  'PUT /api/media/:id/watched',
   'GET /api/continue',
   'GET /api/home',
 ]);

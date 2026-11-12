@@ -17,6 +17,8 @@ export interface MediaRow {
   poster: string | null;
   /** Wide image for the Home page (TMDB backdrop / AniList banner). */
   backdrop: string | null;
+  /** Shows: TMDB's season names (JSON {"1": "Season 1", "3": "The Final Season"}). */
+  season_names: string | null;
   overview: string | null;
   root_folder: string;
   folder_name: string;
@@ -40,6 +42,10 @@ export interface EpisodeRow {
   absolute_number: number | null;
   title: string | null;
   air_date: string | null;
+  /** What happens in the episode (TMDB / Kitsu). */
+  overview: string | null;
+  /** A still from the episode (image URL). */
+  still: string | null;
   monitored: number;
   has_file: number;
   file_path: string | null;
@@ -109,6 +115,7 @@ CREATE TABLE IF NOT EXISTS media (
   year INTEGER,
   poster TEXT,
   backdrop TEXT,
+  season_names TEXT,
   overview TEXT,
   root_folder TEXT NOT NULL,
   folder_name TEXT NOT NULL,
@@ -133,6 +140,8 @@ CREATE TABLE IF NOT EXISTS episodes (
   absolute_number INTEGER,
   title TEXT,
   air_date TEXT,
+  overview TEXT,
+  still TEXT,
   monitored INTEGER NOT NULL DEFAULT 1,
   has_file INTEGER NOT NULL DEFAULT 0,
   file_path TEXT,
@@ -275,6 +284,10 @@ function migrate() {
   const cols = (db.prepare('PRAGMA table_info(media)').all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes('anime_seasons')) db.exec('ALTER TABLE media ADD COLUMN anime_seasons TEXT');
   if (!cols.includes('backdrop')) db.exec('ALTER TABLE media ADD COLUMN backdrop TEXT');
+  if (!cols.includes('season_names')) db.exec('ALTER TABLE media ADD COLUMN season_names TEXT');
+  const epCols = (db.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).map((c) => c.name);
+  if (!epCols.includes('overview')) db.exec('ALTER TABLE episodes ADD COLUMN overview TEXT');
+  if (!epCols.includes('still')) db.exec('ALTER TABLE episodes ADD COLUMN still TEXT');
   const dlCols = (db.prepare('PRAGMA table_info(downloads)').all() as { name: string }[]).map((c) => c.name);
   if (!dlCols.includes('select_files')) {
     db.exec('ALTER TABLE downloads ADD COLUMN select_files INTEGER NOT NULL DEFAULT 0');

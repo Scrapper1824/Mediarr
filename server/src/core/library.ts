@@ -6,6 +6,7 @@ import { getSettings, rootsFor } from '../settings.js';
 import type { AnimeSeason } from './animeMatch.js';
 import { folderName } from './naming.js';
 import { chooseRoot } from './rootFolders.js';
+import { fillAnimeEpisodeDetails } from './episodeDetails.js';
 
 export interface AddMediaInput {
   type: MediaType;
@@ -28,7 +29,12 @@ interface EpisodeInput {
   absolute: number | null;
   title: string | null;
   airDate: string | null;
+  overview?: string | null;
+  still?: string | null;
 }
+
+const seasonNamesJson = (seasons: { season: number; name: string }[]) =>
+  JSON.stringify(Object.fromEntries(seasons.filter((x) => x.name).map((x) => [x.season, x.name])));
 
 const by = (input: AddMediaInput) =>
   input.location ? ` (found in ${input.location.root})` : input.requestedBy ? ` (requested by ${input.requestedBy})` : '';
@@ -66,11 +72,12 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
     const r = insert.run('show', show.tmdbId, null, show.title, JSON.stringify(alt), show.year, show.poster, show.overview, rootFor(folderName('show', show.title, show.year)),
       nameFor(folderName('show', show.title, show.year)), monitored ? 1 : 0, null, show.status, null, now(), now(), null, show.backdrop ?? null);
     const id = Number(r.lastInsertRowid);
+    db.prepare('UPDATE media SET season_names = ? WHERE id = ?').run(seasonNamesJson(show.seasons), id);
     const eps = await getShowEpisodes(show.tmdbId, show.seasons.map((x) => x.season));
     const wanted = new Set(input.seasons ?? show.seasons.filter((x) => x.season > 0).map((x) => x.season));
     upsertEpisodes(
       id,
-      eps.map((e) => ({ season: e.season, episode: e.episode, absolute: null, title: e.title, airDate: e.airDate })),
+      eps.map((e) => ({ season: e.season, episode: e.episode, absolute: null, title: e.title, airDate: e.airDate, overview: e.overview, still: e.still })),
       (e) => wanted.has(e.season),
     );
     logHistory(id, 'added', `Added show ${show.title}${by(input)}`);
@@ -86,6 +93,8 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
   const id = Number(r.lastInsertRowid);
   const wanted = new Set(input.seasons ?? a.seasons.map((x) => x.season));
   upsertEpisodes(id, animeEpisodes(a), (e) => wanted.has(e.season));
+  // Episode titles, summaries and stills (Kitsu) arrive in the background; adding doesn't wait for them.
+  void fillAnimeEpisodeDetails(id).catch(() => 0);
   logHistory(id, 'added', `Added anime ${a.title} (${a.seasons.length} season(s), ${audio})${by(input)}`);
   return id;
 }
@@ -144,15 +153,17 @@ function clearMissingFiles(m: MediaRow) {
 function upsertEpisodes(mediaId: number, eps: EpisodeInput[], monitorNew: (e: EpisodeInput) => boolean): number {
   const existing = new Map(getEpisodes(mediaId).map((e) => [`${e.season}x${e.episode}`, e]));
   const ins = db.prepare(
-    'INSERT INTO episodes (media_id, season, episode, absolute_number, title, air_date, monitored) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO episodes (media_id, season, episode, absolute_number, title, air_date, overview, still, monitored) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
-  const upd = db.prepare('UPDATE episodes SET title = COALESCE(?, title), air_date = ?, absolute_number = ? WHERE id = ?');
+  const upd = db.prepare(
+    'UPDATE episodes SET title = COALESCE(?, title), air_date = ?, absolute_number = ?, overview = COALESCE(?, overview), still = COALESCE(?, still) WHERE id = ?',
+  );
   let added = 0;
   for (const e of eps) {
     const row = existing.get(`${e.season}x${e.episode}`);
-    if (row) upd.run(e.title, e.airDate, e.absolute, row.id);
+    if (row) upd.run(e.title, e.airDate, e.absolute, e.overview ?? null, e.still ?? null, row.id);
     else {
-      ins.run(mediaId, e.season, e.episode, e.absolute, e.title, e.airDate, monitorNew(e) ? 1 : 0);
+      ins.run(mediaId, e.season, e.episode, e.absolute, e.title, e.airDate, e.overview ?? null, e.still ?? null, monitorNew(e) ? 1 : 0);
       added++;
     }
   }
@@ -179,11 +190,11 @@ export async function refreshMedia(id: number): Promise<void> {
     const eps = await getShowEpisodes(show.tmdbId, show.seasons.map((x) => x.season));
     const added = upsertEpisodes(
       id,
-      eps.map((e) => ({ season: e.season, episode: e.episode, absolute: null, title: e.title, airDate: e.airDate })),
+      eps.map((e) => ({ season: e.season, episode: e.episode, absolute: null, title: e.title, airDate: e.airDate, overview: e.overview, still: e.still })),
       (e) => e.season > 0 && (monitoredSeasons.has(e.season) || (!!m.monitored && !known.has(e.season))),
     );
-    db.prepare('UPDATE media SET status = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
-      show.status, show.poster, show.backdrop ?? null, show.overview, now(), id);
+    db.prepare('UPDATE media SET status = ?, poster = ?, backdrop = ?, overview = ?, season_names = ?, last_refresh = ? WHERE id = ?').run(
+      show.status, show.poster, show.backdrop ?? null, show.overview, seasonNamesJson(show.seasons), now(), id);
     if (added) logHistory(id, 'refreshed', `Found ${added} new episode(s)`);
     return;
   }
@@ -197,6 +208,7 @@ export async function refreshMedia(id: number): Promise<void> {
   db.prepare('UPDATE media SET status = ?, alt_titles = ?, anime_seasons = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
     a.status, JSON.stringify(a.altTitles), JSON.stringify(a.seasons), a.poster, a.backdrop ?? null, a.overview, now(), id);
   if (added) logHistory(id, 'refreshed', `Found ${added} new episode(s)`);
+  await fillAnimeEpisodeDetails(id).catch(() => 0);
 }
 
 export function mediaTitles(m: MediaRow): string[] {

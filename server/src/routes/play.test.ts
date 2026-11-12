@@ -179,6 +179,35 @@ describe('the Home page', () => {
     expect(theirs.featured.find((f: { title: string }) => f.title === 'Severance').play).toMatchObject({ id: show.eps[0] });
   });
 
+  it('marks episodes watched or not, for you only, and Continue watching follows', async () => {
+    const { boss, viewer } = await users();
+    const show = addSeries('anime', 'Slime', 6, 6);
+    const mark = (who: string, episodeIds: number[], watched: boolean) => call(who, 'PUT', `/api/media/${show.id}/watched`, { episodeIds, watched });
+
+    // A whole season at once (episodes 1–3): the last one counts as the latest, so episode 4 is up next.
+    expect((await mark(viewer, show.eps.slice(0, 3), true)).json()).toEqual({ ok: true, count: 3 });
+    const progress = (await call(viewer, 'GET', `/api/play/progress/${show.id}`)).json();
+    expect(show.eps.slice(0, 3).every((id) => progress[id]?.watched)).toBe(true);
+    expect((await call(viewer, 'GET', '/api/home')).json().continue[0]).toMatchObject({ id: show.eps[3], upNext: true });
+    // Only for that user.
+    expect((await call(boss, 'GET', `/api/play/progress/${show.id}`)).json()).toEqual({});
+
+    // Unmarking.
+    await mark(viewer, [show.eps[2]], false);
+    expect((await call(viewer, 'GET', `/api/play/progress/${show.id}`)).json()[show.eps[2]]).toMatchObject({ watched: false, position: 0 });
+
+    // Episodes of another title, a made-up id, or bad input are refused.
+    const other = addSeries('show', 'Other', 1);
+    expect((await mark(viewer, [other.eps[0]], true)).statusCode).toBe(400);
+    expect((await mark(viewer, [999999], true)).statusCode).toBe(400);
+    expect((await call(viewer, 'PUT', `/api/media/${show.id}/watched`, { episodeIds: [show.eps[0]] })).statusCode).toBe(400);
+    expect((await call(viewer, 'PUT', '/api/media/424242/watched', { episodeIds: [1], watched: true })).statusCode).toBe(404);
+    // A movie is marked as a whole.
+    const movie = addMovie();
+    expect((await call(viewer, 'PUT', `/api/media/${movie}/watched`, { episodeIds: [0], watched: true })).statusCode).toBe(200);
+    expect((await call(viewer, 'GET', `/api/play/progress/${movie}`)).json()[0]).toMatchObject({ watched: true });
+  });
+
   it('keeps a show in Continue watching when the next episode was only just opened', async () => {
     const { viewer } = await users();
     const show = addSeries('anime', 'Witch Watch', 6, 25);

@@ -24,6 +24,8 @@ export interface TmdbEpisode {
   episode: number;
   title: string;
   airDate: string | null;
+  overview: string | null;
+  still: string | null;
 }
 
 export interface TmdbShowDetails {
@@ -53,6 +55,8 @@ const yearOf = (d?: string | null) => (d ? Number(d.slice(0, 4)) || null : null)
 const poster = (p?: string | null) => (p ? IMG + p : null);
 /** Library backdrops: sharp enough for a full-width banner, light enough for a row of cards. */
 const LIBRARY_BACKDROP = 'https://image.tmdb.org/t/p/w1280';
+/** Episode stills: the size of a card in the episode list. */
+const STILL = 'https://image.tmdb.org/t/p/w300';
 const backdrop = (p?: string | null) => (p ? LIBRARY_BACKDROP + p : null);
 
 export async function testTmdb(apiKey: string) {
@@ -229,7 +233,14 @@ export async function getShowEpisodes(id: number, seasons: number[]): Promise<Tm
   for (const n of seasons) {
     const season = await tmdb<any>(`/tv/${id}/season/${n}`);
     for (const e of season.episodes ?? []) {
-      out.push({ season: n, episode: e.episode_number, title: e.name, airDate: e.air_date || null });
+      out.push({
+        season: n,
+        episode: e.episode_number,
+        title: e.name,
+        airDate: e.air_date || null,
+        overview: (e.overview as string)?.trim() || null,
+        still: e.still_path ? STILL + e.still_path : null,
+      });
     }
   }
   return out;

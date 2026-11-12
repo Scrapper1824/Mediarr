@@ -67,6 +67,104 @@ function Overview({ text }: { text: string }) {
 /** "NOT_YET_RELEASED" → "Not yet released"; TMDB's own wording ("Returning Series") stays. */
 const humanStatus = (s: string) => (/^[A-Z_]+$/.test(s) ? (s.charAt(0) + s.slice(1).toLowerCase()).replace(/_/g, ' ') : s);
 
+type Progress = Record<string, { position: number; duration: number; watched: boolean }>;
+
+/** "Season 1" is no name; "The Final Season" or "Part 2" is. */
+const realSeasonName = (name: string | null | undefined, n: number) => (name && !new RegExp(`^(season|series)\\s*0*${n}$`, 'i').test(name.trim()) ? name.trim() : null);
+
+/** One episode: still (plays it), title, air date and status, what happens, and its buttons. */
+function EpisodeRow({
+  e,
+  progress,
+  onWatched,
+  onWanted,
+  onSearch,
+  onReleases,
+  searching,
+}: {
+  e: Episode;
+  progress: Progress[string] | undefined;
+  onWatched: (watched: boolean) => void;
+  onWanted: (wanted: boolean) => void;
+  onSearch: () => void;
+  onReleases: () => void;
+  searching: boolean;
+}) {
+  const [more, setMore] = useState(false);
+  const watched = !!progress?.watched;
+  const partway = !watched && progress && progress.duration > 0 && progress.position > 30 ? progress.position / progress.duration : null;
+  const title = e.title || `Episode ${e.episode}`;
+  const art = (
+    <div className={`ep-still${e.still ? '' : ' empty'}`}>
+      {e.still ? <img src={e.still} alt="" loading="lazy" decoding="async" /> : <span className="ep-still-num">{e.episode}</span>}
+      {e.has_file && (
+        <span className="ep-still-play" aria-hidden>
+          <Icon name="play" size={18} filled />
+        </span>
+      )}
+      {watched && (
+        <span className="ep-still-watched" title="Watched">
+          <Icon name="check" size={13} />
+        </span>
+      )}
+      {partway !== null && (
+        <span className="ep-still-progress">
+          <span style={{ width: `${Math.min(100, partway * 100)}%` }} />
+        </span>
+      )}
+    </div>
+  );
+  return (
+    <li className={`ep${e.aired ? '' : ' unaired'}${watched ? ' is-watched' : ''}`}>
+      {e.has_file ? (
+        <Link className="ep-still-link" to={`/watch/episode/${e.id}`} aria-label={`Play episode ${e.episode}: ${title}`}>
+          {art}
+        </Link>
+      ) : (
+        art
+      )}
+      <div className="ep-main">
+        <div className="ep-head">
+          <span className="ep-num">{e.episode}.</span>
+          <span className="ep-title" title={e.file_path ?? undefined}>
+            {title}
+          </span>
+        </div>
+        <div className="ep-meta">
+          {e.air_date && <span>{formatDate(e.air_date)}</span>}
+          <EpisodeStatus e={e} />
+        </div>
+        {e.overview && (
+          <p className={`ep-overview${more ? ' open' : ''}`} onClick={() => setMore((v) => !v)} title={more ? undefined : 'Show more'}>
+            {e.overview}
+          </p>
+        )}
+      </div>
+      <div className="ep-actions">
+        <button
+          type="button"
+          className={`ep-watch${watched ? ' on' : ''}`}
+          onClick={() => onWatched(!watched)}
+          aria-pressed={watched}
+          title={watched ? 'Watched: click to mark as not watched' : 'Mark as watched'}
+          aria-label={watched ? `Mark episode ${e.episode} as not watched` : `Mark episode ${e.episode} as watched`}
+        >
+          <Icon name="checkCircle" size={22} />
+        </button>
+        <label className="ep-wanted" title="Wanted (download this episode)">
+          <input type="checkbox" checked={e.monitored} onChange={(ev) => onWanted(ev.target.checked)} />
+        </label>
+        <button type="button" className="icon-btn" title="Automatic search" aria-label="Automatic search" disabled={!e.aired || searching} onClick={onSearch}>
+          <Icon name="search" size={16} />
+        </button>
+        <button type="button" className="icon-btn" title="Choose a release" aria-label="Choose a release" onClick={onReleases}>
+          <Icon name="list" size={16} />
+        </button>
+      </div>
+    </li>
+  );
+}
+
 /** "S01E05" → "E5", or "S2 E5" when the series has more than one season. */
 const episodeButtonLabel = (label: string, manySeasons: boolean) => {
   const m = /^S0?(\d+)E0?(\d+)$/.exec(label);
@@ -114,6 +212,14 @@ export default function Detail() {
   const patchEpisode = useMutation({
     mutationFn: ({ epId, monitored }: { epId: number; monitored: boolean }) => api.patch(`/api/episodes/${epId}`, { monitored }),
     onSuccess: refresh,
+  });
+  const markWatched = useMutation({
+    mutationFn: ({ episodeIds, watched }: { episodeIds: number[]; watched: boolean }) => api.put(`/api/media/${id}/watched`, { episodeIds, watched }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['play', 'progress', id] });
+      qc.invalidateQueries({ queryKey: ['home'] });
+      refresh();
+    },
   });
   const patchSeason = useMutation({
     mutationFn: ({ season, monitored }: { season: number; monitored: boolean }) =>
@@ -316,6 +422,11 @@ export default function Detail() {
           const have = eps.filter((e) => e.has_file).length;
           const aired = eps.filter((e) => e.aired).length;
           const allMonitored = eps.every((e) => e.monitored);
+          const progress = watched.data ?? {};
+          // A season counts as watched when every episode that's out is.
+          const countable = eps.filter((e) => e.aired || e.has_file);
+          const seasonWatched = countable.length > 0 && countable.every((e) => progress[String(e.id)]?.watched);
+          const seasonName = m.type === 'show' ? realSeasonName(m.season_names?.[String(s)], s) : null;
           return (
             <section key={s} className="season">
               <header className="season-header">
@@ -323,7 +434,10 @@ export default function Detail() {
                   <span className="caret">{isOpen(s) ? '▾' : '▸'}</span>
                   <span className="season-name">
                     <span className="row">
-                      <h3>{s === 0 ? 'Specials' : `Season ${s}`}</h3>
+                      <h3>
+                        {s === 0 ? 'Specials' : `Season ${s}`}
+                        {seasonName && <span className="season-title-name"> · {seasonName}</span>}
+                      </h3>
                       <span className={`badge ${have >= aired && aired > 0 ? 'ok' : 'muted'}`}>
                         {have}/{aired}
                       </span>
@@ -337,6 +451,18 @@ export default function Detail() {
                   </span>
                 </button>
                 <div className="row">
+                  {countable.length > 0 && (
+                    <button
+                      type="button"
+                      className={`season-watch${seasonWatched ? ' on' : ''}`}
+                      disabled={markWatched.isPending}
+                      onClick={() => markWatched.mutate({ episodeIds: countable.map((e) => e.id), watched: !seasonWatched })}
+                      aria-pressed={seasonWatched}
+                      title={seasonWatched ? 'Mark the season as not watched' : 'Mark every episode that\'s out as watched'}
+                    >
+                      <Icon name="checkCircle" size={17} /> {seasonWatched ? 'Watched' : 'Mark watched'}
+                    </button>
+                  )}
                   <label className="switch small" title="Download this season">
                     <input
                       type="checkbox"
@@ -359,63 +485,20 @@ export default function Detail() {
                 </div>
               </header>
               {isOpen(s) && (
-                <table className="table episodes">
-                  <tbody>
-                    {eps.map((e) => (
-                      <tr key={e.id} className={e.aired ? '' : 'dim'}>
-                        <td className="ep-mon">
-                          <input
-                            type="checkbox"
-                            checked={e.monitored}
-                            title="Wanted (download this episode)"
-                            onChange={(ev) => patchEpisode.mutate({ epId: e.id, monitored: ev.target.checked })}
-                          />
-                        </td>
-                        <td className="ep-play">
-                          {e.has_file ? (
-                            <Link className="icon-btn play-icon" to={`/watch/episode/${e.id}`} title="Play" aria-label={`Play episode ${e.episode}`}>
-                              ▶
-                            </Link>
-                          ) : null}
-                        </td>
-                        <td className="ep-num">
-                          {e.episode}
-                          {watched.data?.[String(e.id)]?.watched && <span className="watched-tick" title="Watched"> ✓</span>}
-                        </td>
-                        <td className="ep-title" title={e.file_path ?? undefined}>
-                          {e.title || `Episode ${e.episode}`}
-                        </td>
-                        <td className="muted small nowrap">{formatDate(e.air_date)}</td>
-                        <td>
-                          <EpisodeStatus e={e} />
-                        </td>
-                        <td className="nowrap actions">
-                          <button
-                            className="icon-btn"
-                            title="Automatic search"
-                            disabled={!e.aired || search.isPending}
-                            onClick={() => search.mutate({ episodeIds: [e.id] })}
-                          >
-                            ⌕
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Interactive search"
-                            onClick={() =>
-                              setReleases({
-                                mediaId: m.id,
-                                episodeId: e.id,
-                                label: `${m.title} S${s}E${e.episode}`,
-                              })
-                            }
-                          >
-                            ☰
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <ol className="episode-list">
+                  {eps.map((e) => (
+                    <EpisodeRow
+                      key={e.id}
+                      e={e}
+                      progress={progress[String(e.id)]}
+                      searching={search.isPending}
+                      onWatched={(w) => markWatched.mutate({ episodeIds: [e.id], watched: w })}
+                      onWanted={(w) => patchEpisode.mutate({ epId: e.id, monitored: w })}
+                      onSearch={() => search.mutate({ episodeIds: [e.id] })}
+                      onReleases={() => setReleases({ mediaId: m.id, episodeId: e.id, label: `${m.title} S${s}E${e.episode}` })}
+                    />
+                  ))}
+                </ol>
               )}
             </section>
           );
