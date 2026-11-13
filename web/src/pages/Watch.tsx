@@ -290,7 +290,8 @@ function Player({ info }: { info: PlayInfo }) {
   const [quality, setQuality] = useState<Quality>('auto');
   const [resumeAsked, setResumeAsked] = useState(info.position > 30);
   // A new object each time, so starting again at the same second still restarts the stream.
-  const [start, setStart] = useState<{ at: number } | null>(info.position > 30 ? null : { at: 0 });
+  // `play: false` keeps it paused (a restart while you had it paused).
+  const [start, setStart] = useState<{ at: number; play?: boolean } | null>(info.position > 30 ? null : { at: 0 });
   const [mode, setMode] = useState<StartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -377,7 +378,8 @@ function Player({ info }: { info: PlayInfo }) {
           v.src = r.url;
           v.addEventListener('loadedmetadata', () => (v.currentTime = startAt), { once: true });
         }
-        v.play().catch(() => setPlaying(false));
+        if (start.play === false) setPlaying(false);
+        else v.play().catch(() => setPlaying(false));
       } catch (err) {
         if (!cancelled) setError((err as Error).message);
       }
@@ -429,7 +431,25 @@ function Player({ info }: { info: PlayInfo }) {
   }, [subtitle, base, info.subtitles, info.hasFonts]);
 
   /** Restarts the stream from where we are (new audio track, picture subtitles or quality). */
-  const restartHere = () => setStart({ at: Math.max(0, currentTime() - 1) });
+  const restartHere = () => setStart({ at: Math.max(0, currentTime() - 1), play: !(video.current?.paused ?? false) });
+
+  // While paused the player stops asking for video, and the server ends a stream nobody asks for in a
+  // minute. So check in every 20 s while paused (up to 30 min; after that a restart picks up where you were).
+  useEffect(() => {
+    let pausedSince = 0;
+    const t = window.setInterval(() => {
+      const v = video.current;
+      const id = session.current;
+      if (!v || !id || !v.paused) {
+        pausedSince = 0;
+        return;
+      }
+      if (!pausedSince) pausedSince = Date.now();
+      if (Date.now() - pausedSince > 30 * 60_000) return;
+      fetch(`/api/play/hls/${id}/main.m3u8`, { credentials: 'same-origin', cache: 'no-store' }).catch(() => undefined);
+    }, 20_000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const chooseAudio = (order: number) => {
     setAudio(order);
