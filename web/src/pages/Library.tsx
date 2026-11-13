@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api, typeLabel, type Media, type MediaType } from '../api';
+import { api, typeLabel, watchId, type Media, type MediaType } from '../api';
+import WatchlistMenu from '../components/WatchlistMenu';
+import { useWatchTags } from '../watchTags';
 import Poster from '../components/Poster';
 import Spinner from '../components/Spinner';
 import Icon from '../components/Icon';
@@ -52,6 +54,7 @@ export function StatusBadge({ m }: { m: Media }) {
 }
 
 export default function Library({ type }: { type: MediaType }) {
+  const watchTag = useWatchTags();
   const [filter, setFilter] = useState('');
   const media = useQuery({
     queryKey: ['media', type],
@@ -91,27 +94,46 @@ export default function Library({ type }: { type: MediaType }) {
       {media.data && media.data.length > 0 && !list.length && <div className="empty">Nothing matches “{filter}”.</div>}
 
       <div className="grid">
-        {list.map((m) => (
-          <Link key={m.id} to={`/media/${m.id}`} className="card link-card">
-            <Poster src={m.poster} title={m.title}>
-              <span className="corner">
-                <PosterFlag m={m} />
-              </span>
-              {m.type === 'anime' && m.anime_audio && <span className={`corner-left chip audio-${m.anime_audio}`}>{m.anime_audio === 'dub' ? 'Dub' : 'Sub'}</span>}
-              {m.type !== 'movie' && m.episodeCount > 0 && m.episodeFileCount > 0 && m.episodeFileCount < m.episodeCount && (
-                <span className="poster-progress" aria-hidden>
-                  <span style={{ width: `${(m.episodeFileCount / m.episodeCount) * 100}%` }} />
-                </span>
+        {list.map((m) => {
+          const partial = m.type !== 'movie' && m.episodeCount > 0 && m.episodeFileCount > 0 && m.episodeFileCount < m.episodeCount;
+          const ids = { type: m.type, tmdbId: m.tmdb_id ?? undefined, anilistId: m.anilist_id ?? undefined, libraryId: m.id };
+          const watch = watchTag(ids);
+          const wid = watchId(ids);
+          return (
+            // The watchlist tag sits beside the link (over the poster), so clicking it never opens the title.
+            <div key={m.id} className="lib-card">
+              <Link to={`/media/${m.id}`} className="card link-card">
+                <Poster src={m.poster} title={m.title}>
+                  <span className={`corner-bottom${partial ? ' above-progress' : ''}`}>
+                    <PosterFlag m={m} />
+                  </span>
+                  {m.type === 'anime' && m.anime_audio && <span className={`corner-left audio-pill audio-${m.anime_audio}`}>{m.anime_audio === 'dub' ? 'Dub' : 'Sub'}</span>}
+                  {partial && (
+                    <span className="poster-progress" aria-hidden>
+                      <span style={{ width: `${(m.episodeFileCount / m.episodeCount) * 100}%` }} />
+                    </span>
+                  )}
+                </Poster>
+                <div className="card-body">
+                  <div className="card-title" title={m.title}>
+                    {m.title}
+                  </div>
+                  <div className="muted small">{caption(m) || ' '}</div>
+                </div>
+              </Link>
+              {watch && wid && (
+                <WatchlistMenu
+                  variant="tag"
+                  className={`lib-tag ${watch.status ? 'on' : 'off'}`}
+                  type={m.type}
+                  id={wid}
+                  status={watch.status}
+                  info={{ title: m.title, year: m.year, poster: m.poster }}
+                />
               )}
-            </Poster>
-            <div className="card-body">
-              <div className="card-title" title={m.title}>
-                {m.title}
-              </div>
-              <div className="muted small">{caption(m) || ' '}</div>
             </div>
-          </Link>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

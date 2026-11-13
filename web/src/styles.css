@@ -1353,3 +1353,21 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 .discover-art:hover .wl-menu-tag.discover-tag, .discover-art:focus-within .wl-menu-tag.discover-tag { transform: translate(3px, -7px); }
 .discover-art:hover .wl-menu-tag.off .wl-tag { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .discover-art:hover .wl-menu-tag.discover-tag, .discover-art:hover .discover-add { transform: none; } }
+
+/* Library cards: watchlist tag top-right, Sub/Dub top-left, status bottom-left. */
+.lib-card { position: relative; min-width: 0; }
+.lib-card .wl-menu-tag.lib-tag { transition: transform 0.25s ease; }
+.lib-card:hover .wl-menu-tag.lib-tag, .lib-card:focus-within .wl-menu-tag.lib-tag { transform: translateY(-4px); }
+.lib-card:hover .link-card > .poster { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.lib-card:hover .wl-menu-tag.off .wl-tag { opacity: 1; }
+.corner-bottom { position: absolute; left: 8px; bottom: 8px; }
+.corner-bottom.above-progress { bottom: 22px; }
+/* Sub / Dub: a solid pill that reads on any poster. */
+.audio-pill {
+  padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.03em; line-height: 16px;
+  background: rgba(12, 12, 16, 0.82); border: 1px solid rgba(255, 255, 255, 0.14); backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.audio-pill.audio-sub { color: #dccbff; }
+.audio-pill.audio-dub { color: #a6e4ff; }
+@media (prefers-reduced-motion: reduce) { .lib-card:hover .wl-menu-tag.lib-tag, .lib-card:hover .link-card > .poster { transform: none; } }
