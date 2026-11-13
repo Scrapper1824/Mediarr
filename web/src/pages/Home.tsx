@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, watchId, type MediaType, type SearchResult, type WatchItem, type WatchLinks, type WatchStatus } from '../api';
+import { api, watchId, type SearchResult } from '../api';
 import { cardStill, shortEp, type ContinueItem, type HomeData, type HomeTitle, type PlayableTitle } from '../home';
 import HomeHero from '../components/HomeHero';
 import MediaDetails from '../components/MediaDetails';
 import Rail, { RailSkeleton } from '../components/Rail';
 import WatchlistMenu from '../components/WatchlistMenu';
+import { useWatchTags, type WatchTag } from '../watchTags';
 
 const infoFor = (t: HomeTitle): SearchResult => ({
   type: t.type,
@@ -55,30 +56,6 @@ function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void
       </div>
     </div>
   );
-}
-
-/** A title's place on your watchlists; `undefined` when no connected list takes this kind of title. */
-type WatchTag = { status: WatchStatus | null } | undefined;
-
-/** Your watchlist status for each title, for the tags on the posters. */
-function useWatchTags() {
-  const links = useQuery({ queryKey: ['watchlist', 'links'], queryFn: () => api.get<WatchLinks>('/api/watchlist/links'), staleTime: 5 * 60_000 });
-  const simkl = !!links.data?.simkl.connected;
-  const anilist = !!links.data?.anilist.connected;
-  const list = useQuery({
-    queryKey: ['watchlist', 'items'],
-    queryFn: () => api.get<{ items: WatchItem[]; errors: string[] }>('/api/watchlist'),
-    enabled: simkl || anilist,
-    staleTime: 60_000,
-  });
-  const items = list.data?.items ?? [];
-  return (t: HomeTitle): WatchTag => {
-    const takes = (type: MediaType) => (type === 'anime' ? simkl || anilist : simkl);
-    if (!takes(t.type) || !list.data) return undefined;
-    const id = watchId(t);
-    const hit = items.find((i) => i.libraryId === t.mediaId) ?? (id ? items.find((i) => i.key === `${t.type}:${id}`) : undefined);
-    return { status: hit?.status ?? null };
-  };
 }
 
 /** The poster plays (resume, the next episode, or from the start); the name opens the title's page. */
@@ -153,7 +130,7 @@ export default function Home() {
       {d && d.recent.length > 0 && (
         <Rail title="Recently added">
           {d.recent.map((t) => (
-            <PosterCard key={t.mediaId} item={t} watch={watchTag(t)} />
+            <PosterCard key={t.mediaId} item={t} watch={watchTag({ ...t, libraryId: t.mediaId })} />
           ))}
         </Rail>
       )}
@@ -168,7 +145,7 @@ export default function Home() {
           d.libraries[type].length ? (
             <Rail key={type} title={title} seeAll={to}>
               {d.libraries[type].map((t) => (
-                <PosterCard key={t.mediaId} item={t} watch={watchTag(t)} />
+                <PosterCard key={t.mediaId} item={t} watch={watchTag({ ...t, libraryId: t.mediaId })} />
               ))}
             </Rail>
           ) : null,

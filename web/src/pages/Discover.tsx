@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, typeLabel, type MediaType, type SearchResult } from '../api';
+import { api, typeLabel, watchId, type MediaType, type SearchResult } from '../api';
 import AddDialog from '../components/AddDialog';
 import Hero, { type FeaturedItem } from '../components/Hero';
 import MediaDetails from '../components/MediaDetails';
 import Rail, { RailSkeleton } from '../components/Rail';
 import { activeCount, emptyFilters, FilterPanel, filterQuery, type Filters } from '../components/DiscoverFilters';
+import WatchlistMenu from '../components/WatchlistMenu';
+import { useWatchTags } from '../watchTags';
 
 interface BrowseRowData {
   id: string;
@@ -24,6 +26,9 @@ function ResultCard({
   onOpen: (r: SearchResult) => void;
 }) {
   const sub = [r.year, r.extra, r.dubbed ? 'Dub' : null].filter(Boolean).join(' · ');
+  // Your watchlist status (every card shares one fetch of your lists).
+  const watch = useWatchTags()(r);
+  const wid = watchId(r);
   return (
     <div className="home-poster-card discover-card">
       <div className="discover-art">
@@ -33,6 +38,16 @@ function ResultCard({
             {r.libraryId ? <span className="discover-owned">In library</span> : r.requested ? <span className="discover-owned discover-requested">Requested</span> : null}
           </div>
         </button>
+        {watch && wid && (
+          <WatchlistMenu
+            variant="tag"
+            className={`discover-tag ${watch.status ? 'on' : 'off'}`}
+            type={r.type}
+            id={wid}
+            status={watch.status}
+            info={{ title: r.title, year: r.year, poster: r.poster }}
+          />
+        )}
         {!r.libraryId && !r.requested && (
           <button type="button" className="discover-add" onClick={() => onRequest(r)} aria-label={`Request ${r.title}`} title="Request">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
