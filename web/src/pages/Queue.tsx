@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import CancelDownloadDialog from '../components/CancelDownloadDialog';
 import { Link } from 'react-router-dom';
 import { api, formatSize, timeAgo, type Download } from '../api';
 import { useIsAdmin } from '../components/AuthGate';
@@ -26,6 +28,7 @@ export default function Queue() {
     refetchInterval: (q) => (q.state.data?.some((d) => d.state === 'queued' || d.state === 'downloading') ? 2000 : 10000),
   });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['queue'] });
+  const [cancelling, setCancelling] = useState<Download | null>(null);
 
   const remove = useMutation({
     mutationFn: ({ id, deleteFiles }: { id: number; deleteFiles: boolean }) => api.del(`/api/queue/${id}?deleteFiles=${deleteFiles}`),
@@ -94,12 +97,8 @@ export default function Queue() {
                     {isAdmin && (
                     <button
                       className="icon-btn"
-                      title="Remove"
-                      onClick={() => {
-                        if (d.state === 'failed') return remove.mutate({ id: d.id, deleteFiles: false });
-                        if (confirm('Remove this download from qBittorrent?'))
-                          remove.mutate({ id: d.id, deleteFiles: confirm('Also delete the downloaded data?') });
-                      }}
+                      title={d.state === 'failed' ? 'Clear' : 'Cancel download'}
+                      onClick={() => (d.state === 'failed' ? remove.mutate({ id: d.id, deleteFiles: false }) : setCancelling(d))}
                     >
                       ✕
                     </button>
@@ -111,6 +110,7 @@ export default function Queue() {
           </table>
         </div>
       )}
+      {cancelling && <CancelDownloadDialog d={cancelling} onClose={() => setCancelling(null)} onDone={() => { setCancelling(null); invalidate(); }} />}
     </div>
   );
 }
