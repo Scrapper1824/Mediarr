@@ -10,6 +10,7 @@ import Queue from './pages/Queue';
 import History from './pages/History';
 import Watchlist from './pages/Watchlist';
 import SettingsPage from './pages/Settings';
+import Requests, { usePendingRequests } from './pages/Requests';
 import SearchAlerts from './components/SearchAlerts';
 import { useAuth, useIsAdmin } from './components/AuthGate';
 import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
@@ -41,6 +42,7 @@ const NAV: { heading: string | null; items: NavItem[] }[] = [
     heading: 'Get more',
     items: [
       { to: '/discover', label: 'Discover', icon: 'discover' },
+      { to: '/requests', label: 'Requests', icon: 'inbox' },
       { to: '/queue', label: 'Downloads', icon: 'queue' },
       { to: '/history', label: 'History', icon: 'history' },
       { to: '/settings', label: 'Settings', icon: 'settings' },
@@ -83,6 +85,9 @@ function Shell() {
   const logout = useMutation({ mutationFn: () => api.post('/api/auth/logout'), onSettled: () => qc.resetQueries() });
   // Admins: a new release on GitHub shows as "Update available".
   const update = useUpdateInfo(isAdmin);
+  // Requests: admins (with a count of what's waiting) and users whose requests need approval.
+  const pendingRequests = usePendingRequests(isAdmin).data?.pending ?? 0;
+  const showRequests = isAdmin || !!auth.data?.user?.needsApproval;
   const [updating, setUpdating] = useState(false);
 
   return (
@@ -96,7 +101,7 @@ function Shell() {
           {NAV.map((group, gi) => (
             <div key={gi} className="nav-group">
               {group.heading && <div className="nav-heading">{group.heading}</div>}
-              {group.items.map((n) => {
+              {group.items.filter((n) => n.to !== '/requests' || showRequests).map((n) => {
                 const account = n.to === '/settings' && !isAdmin;
                 return (
                   <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
@@ -105,6 +110,7 @@ function Shell() {
                     </span>
                     <span className="nav-label">{account ? 'Account' : n.label}</span>
                     {n.to === '/queue' && activeCount > 0 && <span className="nav-badge">{activeCount}</span>}
+                    {n.to === '/requests' && pendingRequests > 0 && <span className="nav-badge">{pendingRequests}</span>}
                   </NavLink>
                 );
               })}
@@ -147,6 +153,7 @@ function Shell() {
           <Route path="/anime" element={<Library type="anime" />} />
           <Route path="/media/:id" element={<Detail />} />
           <Route path="/watchlist" element={<Watchlist />} />
+          <Route path="/requests" element={<Requests />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/history" element={<History />} />
           <Route path="/settings" element={<SettingsPage />} />

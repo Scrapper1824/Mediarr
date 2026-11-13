@@ -236,8 +236,14 @@ export function withLibraryIds<T extends { tmdbId?: number; anilistId?: number }
     anilist_id: number | null;
     anime_seasons: string | null;
   }[];
+  // Waiting for an admin's approval (shown as "Requested").
+  const asked = db.prepare("SELECT tmdb_id, anilist_id FROM requests WHERE status = 'pending' AND type = ?").all(type) as {
+    tmdb_id: number | null;
+    anilist_id: number | null;
+  }[];
   return results.map((r) => ({
     ...r,
+    requested: asked.some((a) => (r.tmdbId && a.tmdb_id === r.tmdbId) || (r.anilistId && a.anilist_id === r.anilistId)),
     libraryId:
       lib.find(
         (l) =>

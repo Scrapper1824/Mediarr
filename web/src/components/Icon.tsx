@@ -23,6 +23,7 @@ const PATHS = {
   list: 'M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01',
   /** The bare "i" (for buttons that are already round). */
   infoMark: 'M12 11v7M12 6.5v.5',
+  inbox: 'M3.5 13.5 6 5.5h12l2.5 8V19a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1zM3.5 13.5h5l1 2.5h5l1-2.5h5',
   folder: 'M3.5 6.5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z',
 } as const;
 

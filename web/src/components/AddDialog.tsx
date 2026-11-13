@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, type SearchResult, type Settings } from '../api';
+import { useAuth } from './AuthGate';
 import Modal from './Modal';
 import Spinner from './Spinner';
 
@@ -12,6 +13,8 @@ interface ShowDetails {
 export default function AddDialog({ item, onClose }: { item: SearchResult; onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // This user's requests wait for an admin.
+  const asking = !!useAuth().data?.user?.needsApproval;
   const settings = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') });
   const details = useQuery({
     queryKey: ['details', item.type, item.tmdbId ?? item.anilistId],
@@ -32,7 +35,7 @@ export default function AddDialog({ item, onClose }: { item: SearchResult; onClo
 
   const add = useMutation({
     mutationFn: () =>
-      api.post<{ id: number }>('/api/media', {
+      api.post<{ id?: number; pending?: boolean }>('/api/media', {
         type: item.type,
         tmdbId: item.tmdbId,
         anilistId: item.anilistId,
@@ -41,10 +44,11 @@ export default function AddDialog({ item, onClose }: { item: SearchResult; onClo
         seasons: item.type !== 'movie' && details.data ? [...selected] : undefined,
         animeAudio: item.type === 'anime' ? effectiveAudio : undefined,
       }),
-    onSuccess: ({ id }) => {
+    onSuccess: ({ id, pending }) => {
       qc.invalidateQueries({ queryKey: ['media'] });
       qc.invalidateQueries({ queryKey: ['discover'] });
-      navigate(`/media/${id}`);
+      qc.invalidateQueries({ queryKey: ['requests'] });
+      if (!pending && id) navigate(`/media/${id}`);
     },
   });
 
@@ -116,12 +120,20 @@ export default function AddDialog({ item, onClose }: { item: SearchResult; onClo
             <span>Start searching now</span>
           </label>
 
+          {asking && !add.data?.pending && (
+            <div className="hint">An admin approves your requests before anything downloads.</div>
+          )}
+          {add.data?.pending && (
+            <div className="ok-box">
+              Request sent. It’s waiting for an admin to approve it; you can follow it on the <Link to="/requests" onClick={onClose}>Requests</Link> page.
+            </div>
+          )}
           {add.isPending && (
             <div className="progress-note">
               <Spinner />
               <span>
                 Adding {item.title}…{' '}
-                <span className="muted">{isSeries ? 'getting the episode list' : 'getting movie details'}, then searching starts.</span>
+                <span className="muted">{asking ? 'sending your request to an admin.' : `${isSeries ? 'getting the episode list' : 'getting movie details'}, then searching starts.`}</span>
               </span>
             </div>
           )}
@@ -129,16 +141,18 @@ export default function AddDialog({ item, onClose }: { item: SearchResult; onClo
           {add.error && <div className="error-box">{(add.error as Error).message}</div>}
           <div className="row end">
             <button className="btn ghost" onClick={onClose} disabled={add.isPending}>
-              Cancel
+              {add.data?.pending ? 'Close' : 'Cancel'}
             </button>
-            <button
-              className="btn primary"
-              disabled={add.isPending || (isSeries && details.isLoading) || noSeasons}
-              onClick={() => add.mutate()}
-            >
-              {add.isPending && <Spinner />}
-              {add.isPending ? 'Adding…' : 'Add & request'}
-            </button>
+            {!add.data?.pending && (
+              <button
+                className="btn primary"
+                disabled={add.isPending || (isSeries && details.isLoading) || noSeasons}
+                onClick={() => add.mutate()}
+              >
+                {add.isPending && <Spinner />}
+                {asking ? (add.isPending ? 'Sending…' : 'Send request') : add.isPending ? 'Adding…' : 'Add & request'}
+              </button>
+            )}
           </div>
         </div>
       </div>

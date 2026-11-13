@@ -43,6 +43,9 @@ export const USER_ALLOWED = new Set([
   'POST /api/media/:id/grab',
   'POST /api/suggestions/:id/accept',
   'POST /api/suggestions/:id/dismiss',
+  // Requests that wait for an admin: users see (and can withdraw) their own.
+  'GET /api/requests',
+  'DELETE /api/requests/:id',
   'GET /api/queue',
   'GET /api/history',
   'GET /api/search-events',
@@ -73,6 +76,22 @@ export const USER_ALLOWED = new Set([
   'GET /api/continue',
   'GET /api/home',
 ]);
+
+/**
+ * Things that start (or will start) downloads. A user whose requests need approval can't do them;
+ * adding a title (POST /api/media) still works for them, but becomes a request for an admin.
+ */
+export const NEEDS_ADMIN_OK = new Set([
+  'PATCH /api/media/:id',
+  'PATCH /api/media/:id/seasons/:season',
+  'PATCH /api/episodes/:id',
+  'POST /api/media/:id/search',
+  'POST /api/media/:id/grab',
+  'POST /api/suggestions/:id/accept',
+]);
+
+/** True when this user's requests wait for an admin. */
+export const needsApproval = (u: { role: string; needs_approval?: number } | null | undefined) => !!u && u.role !== 'admin' && !!u.needs_approval;
 
 /** Header the web app sends on every request that changes something; other sites can't set it (no CORS). */
 export const CSRF_HEADER = 'x-requested-with';
@@ -171,6 +190,9 @@ export function registerSecurity(app: FastifyInstance) {
     }
     if (req.user.role !== 'admin' && !USER_ALLOWED.has(key)) {
       return reply.code(403).send({ error: 'Only an admin can do that.' });
+    }
+    if (needsApproval(req.user) && NEEDS_ADMIN_OK.has(key)) {
+      return reply.code(403).send({ error: 'Your requests need an admin’s approval, so you can’t start downloads yourself. Ask an admin.' });
     }
   });
 

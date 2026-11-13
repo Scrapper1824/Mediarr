@@ -12,6 +12,8 @@ export interface SearchResult {
   /** A TMDB show that is really Japanese anime. */
   isAnime?: boolean;
   libraryId: number | null;
+  /** Asked for and waiting for an admin's approval. */
+  requested?: boolean;
 }
 
 export interface Media {
@@ -209,7 +211,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 export interface AuthStatus {
   setupRequired: boolean;
   authenticated: boolean;
-  user: { id: number; username: string; role: 'admin' | 'user'; totpEnabled: boolean; sessions: number } | null;
+  user: { id: number; username: string; role: 'admin' | 'user'; needsApproval: boolean; totpEnabled: boolean; sessions: number } | null;
 }
 
 export const api = {

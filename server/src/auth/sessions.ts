@@ -13,6 +13,8 @@ export interface UserRow {
   id: number;
   username: string;
   role: Role;
+  /** Regular users only: what they request waits for an admin's approval. */
+  needs_approval: number;
   password_hash: string;
   totp_secret: string | null;
   totp_enabled: number;

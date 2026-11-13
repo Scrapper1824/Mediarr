@@ -42,6 +42,8 @@ import { beginInstall, checkForUpdate, updateInfo } from '../system/updater.js';
 import { ffmpegInfo } from '../playback/ffmpeg.js';
 import { testGpu } from '../playback/gpuTest.js';
 import { playTarget } from '../core/home.js';
+import { approveRequest, cancelRequest, createRequest, denyRequest, listRequests, pendingCount } from '../core/requests.js';
+import { needsApproval } from '../auth/security.js';
 import { availabilityFor } from '../core/availability.js';
 
 const MASK = '********';
@@ -282,6 +284,8 @@ export async function apiRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: AddMediaInput & { searchNow?: boolean } }>('/api/media', async (req) => {
+    // This user's requests wait for an admin.
+    if (needsApproval(req.user)) return createRequest(req.user!, req.body ?? ({} as AddMediaInput));
     const id = await addMedia({ ...requestedMedia(req.body), requestedBy: req.user!.username });
     if (req.body.searchNow !== false) {
       // Run in the background; the UI polls the detail page for progress.
@@ -323,6 +327,37 @@ export async function apiRoutes(app: FastifyInstance) {
 
   app.patch<{ Params: { id: string }; Body: { monitored: boolean } }>('/api/episodes/:id', async (req) => {
     db.prepare('UPDATE episodes SET monitored = ? WHERE id = ?').run(req.body.monitored ? 1 : 0, Number(req.params.id));
+    return { ok: true };
+  });
+
+  // ---- Requests waiting for an admin ----
+  app.get('/api/requests', async (req) => {
+    const rows = listRequests(req.user!.role === 'admin' ? null : req.user!.id);
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      type: r.type,
+      tmdbId: r.tmdb_id,
+      anilistId: r.anilist_id,
+      title: r.title,
+      year: r.year,
+      poster: r.poster,
+      seasons: (JSON.parse(r.input) as { seasons?: number[] }).seasons ?? null,
+      status: r.status,
+      mediaId: r.media_id,
+      decidedBy: r.decided_by,
+      decidedAt: r.decided_at,
+      createdAt: r.created_at,
+    }));
+  });
+  app.get('/api/requests/count', async () => ({ pending: pendingCount() }));
+  app.post<{ Params: { id: string } }>('/api/requests/:id/approve', async (req) => ({ mediaId: await approveRequest(Number(req.params.id), req.user!.username) }));
+  app.post<{ Params: { id: string } }>('/api/requests/:id/deny', async (req) => {
+    denyRequest(Number(req.params.id), req.user!.username);
+    return { ok: true };
+  });
+  app.delete<{ Params: { id: string } }>('/api/requests/:id', async (req) => {
+    cancelRequest(Number(req.params.id), req.user!);
     return { ok: true };
   });
 

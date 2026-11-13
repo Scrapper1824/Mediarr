@@ -8,6 +8,7 @@ interface UserSummary {
   id: number;
   username: string;
   role: 'admin' | 'user';
+  needsApproval: boolean;
   totpEnabled: boolean;
   sessions: number;
   createdAt: string;
@@ -18,12 +19,14 @@ function AddUser() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [approval, setApproval] = useState(false);
   const add = useMutation({
-    mutationFn: () => api.post('/api/users', { username, password, role }),
+    mutationFn: () => api.post('/api/users', { username, password, role, needsApproval: role === 'user' && approval }),
     onSuccess: () => {
       setUsername('');
       setPassword('');
       setRole('user');
+      setApproval(false);
       qc.invalidateQueries({ queryKey: ['users'] });
     },
   });
@@ -44,6 +47,12 @@ function AddUser() {
       <button className="btn primary" disabled={add.isPending}>
         {add.isPending && <Spinner />} Add user
       </button>
+      {role === 'user' && (
+        <label className="check full-row">
+          <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)} />
+          <span>Their requests need an admin’s approval</span>
+        </label>
+      )}
       {add.error && <div className="error-box full-row">{(add.error as Error).message}</div>}
       {add.isSuccess && <span className="ok-text small full-row">User added. Share the password with them; they can change it under Account.</span>}
     </form>
@@ -56,7 +65,7 @@ function UserRow({ u, isMe }: { u: UserSummary; isMe: boolean }) {
   const [password, setPassword] = useState('');
   const refresh = () => qc.invalidateQueries({ queryKey: ['users'] });
   const update = useMutation({
-    mutationFn: (body: { role?: string; password?: string }) => api.patch(`/api/users/${u.id}`, body),
+    mutationFn: (body: { role?: string; password?: string; needsApproval?: boolean }) => api.patch(`/api/users/${u.id}`, body),
     onSuccess: () => {
       setResetting(false);
       setPassword('');
@@ -84,6 +93,15 @@ function UserRow({ u, isMe }: { u: UserSummary; isMe: boolean }) {
             <option value="admin">Admin</option>
           </select>
         </td>
+        <td>
+          {u.role === 'user' ? (
+            <label className="switch" title="When on, what they request waits for an admin to approve it">
+              <input type="checkbox" role="switch" checked={u.needsApproval} disabled={update.isPending} onChange={(e) => update.mutate({ needsApproval: e.target.checked })} />
+              <span className="switch-track" aria-hidden />
+              <span className="small">Needs approval</span>
+            </label>
+          ) : null}
+        </td>
         <td>{u.totpEnabled ? <span className="badge ok">2FA on</span> : <span className="badge muted">2FA off</span>}</td>
         <td className="muted small nowrap">{u.sessions} session(s)</td>
         <td className="muted small nowrap">Added {formatDate(u.createdAt)}</td>
@@ -106,7 +124,7 @@ function UserRow({ u, isMe }: { u: UserSummary; isMe: boolean }) {
       </tr>
       {(resetting || error) && (
         <tr className="sub-row">
-          <td colSpan={6}>
+          <td colSpan={7}>
             {resetting && (
               <form
                 className="row wrap"
@@ -148,7 +166,8 @@ export default function UsersPanel() {
       <h2>Users</h2>
       <p className="muted small">
         <strong>Admins</strong> can do everything. <strong>Users</strong> can browse, request and search, but can’t change settings,
-        manage users, remove items from the library or cancel downloads.
+        manage users, remove items from the library or cancel downloads. Turn on <strong>Needs approval</strong> for a user and
+        what they request waits on the Requests page until an admin approves it.
       </p>
       {users.isLoading && <div className="loading">Loading…</div>}
       {users.data && (

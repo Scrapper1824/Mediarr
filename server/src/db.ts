@@ -250,6 +250,24 @@ CREATE TABLE IF NOT EXISTS watch_progress (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (user_id, media_id, episode_id)
 );
+-- Titles asked for by users whose requests need an admin's approval.
+CREATE TABLE IF NOT EXISTS requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  username TEXT NOT NULL,
+  type TEXT NOT NULL,
+  tmdb_id INTEGER,
+  anilist_id INTEGER,
+  title TEXT NOT NULL,
+  year INTEGER,
+  poster TEXT,
+  input TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  media_id INTEGER,
+  decided_by TEXT,
+  decided_at TEXT,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -308,6 +326,7 @@ function migrate() {
   // Accounts created before roles existed were the owner's: they become admins.
   const userCols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
   if (!userCols.includes('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
+  if (!userCols.includes('needs_approval')) db.exec('ALTER TABLE users ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0');
 }
 
 export const now = () => new Date().toISOString();

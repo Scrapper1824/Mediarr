@@ -115,6 +115,10 @@ export default function MediaDetails({
                 <Link className="hero-play" to={`/media/${libraryId}`} onClick={onClose}>
                   <span aria-hidden>▶</span> Open in library
                 </Link>
+              ) : d?.requested ?? item.requested ? (
+                <Link className="hero-play" to="/requests" onClick={onClose}>
+                  Requested · waiting for approval
+                </Link>
               ) : (
                 <button className="hero-play" onClick={() => onRequest(item)}>
                   <span aria-hidden>＋</span> Request

@@ -29,10 +29,10 @@ function ResultCard({
         <button type="button" className="home-poster-link" onClick={() => onOpen(r)} aria-label={`${r.title} details`}>
           <div className="home-poster">
             {r.poster ? <img src={r.poster} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{r.title.slice(0, 1)}</div>}
-            {r.libraryId ? <span className="discover-owned">In library</span> : null}
+            {r.libraryId ? <span className="discover-owned">In library</span> : r.requested ? <span className="discover-owned discover-requested">Requested</span> : null}
           </div>
         </button>
-        {!r.libraryId && (
+        {!r.libraryId && !r.requested && (
           <button type="button" className="discover-add" onClick={() => onRequest(r)} aria-label={`Request ${r.title}`} title="Request">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
               <path d="M12 5v14M5 12h14" />

@@ -133,6 +133,10 @@ export default function Hero({
             <Link className="hero-play" to={`/media/${item.libraryId}`}>
               <span aria-hidden>▶</span> Open
             </Link>
+          ) : item.requested ? (
+            <Link className="hero-play" to="/requests">
+              Requested
+            </Link>
           ) : (
             <button className="hero-play" onClick={() => onRequest(item)}>
               <span aria-hidden>＋</span> Request
