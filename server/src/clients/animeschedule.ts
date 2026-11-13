@@ -20,6 +20,8 @@ export interface DubSchedule {
   dubBatches: { date: string; extra: number }[];
   episodes: number | null;
   status: string | null;
+  /** The next English-dubbed episode and when it comes out (from the title's page), null when not listed. */
+  dubNext: { episode: number; at: string } | null;
   /** AnimeSchedule's page, for the credit link. */
   url: string;
 }
@@ -47,15 +49,43 @@ export function parseDubSchedule(a: Record<string, unknown>): DubSchedule {
       .map((o) => ({ date: o.overrideDate!, extra: o.episodesAired! })),
     episodes: typeof a.episodes === 'number' && a.episodes > 0 ? a.episodes : null,
     status: typeof a.status === 'string' ? a.status : null,
+    dubNext: null,
     url: `${BASE}/anime/${typeof a.route === 'string' ? a.route : ''}`,
   };
 }
 
+/**
+ * The next dubbed episode from a title's AnimeSchedule page ("Episode 1160 Dub: Tuesday 17 Nov").
+ * Their API has the dub's start date but not which episode it's on, which matters for long runners
+ * whose dub restarted years later (One Piece). Null when the page doesn't list one.
+ */
+export function parseDubNext(html: string): DubSchedule['dubNext'] {
+  const m = /release-time-type-dub[^>]*>\s*<span class="release-time-episode-number">\s*Episode\s+(\d+)\s*<\/span>[\s\S]{0,600}?id="release-time-dub"[^>]*datetime="([^"]+)"/.exec(html);
+  if (!m) return null;
+  const episode = Number(m[1]);
+  const at = new Date(m[2]);
+  if (!Number.isInteger(episode) || episode <= 0 || Number.isNaN(at.getTime())) return null;
+  return { episode, at: at.toISOString() };
+}
+
+const HEADERS = { 'user-agent': 'Mediarr (self-hosted media manager)' };
+
 /** The dub schedule for an AniList entry, or null when AnimeSchedule doesn't know the title. */
 export async function dubScheduleFor(anilistId: number): Promise<DubSchedule | null> {
   const r = await fetchJson<{ anime?: Record<string, unknown>[] }>(`${BASE}/api/v3/anime?anilist-ids=${anilistId}`, {
-    headers: { accept: 'application/json', 'user-agent': 'Mediarr (self-hosted media manager)' },
+    headers: { accept: 'application/json', ...HEADERS },
   });
   const a = r.anime?.[0];
-  return a ? parseDubSchedule(a) : null;
+  if (!a) return null;
+  const d = parseDubSchedule(a);
+  // Still being dubbed: which episode is next (the page shows it; the API doesn't).
+  if (d.dubExists && d.status !== 'Finished' && typeof a.route === 'string' && a.route) {
+    try {
+      const res = await fetch(`${BASE}/anime/${encodeURIComponent(a.route)}`, { headers: { accept: 'text/html', ...HEADERS }, signal: AbortSignal.timeout(20000) });
+      if (res.ok) d.dubNext = parseDubNext(await res.text());
+    } catch {
+      // the estimate from the start date still works
+    }
+  }
+  return d;
 }

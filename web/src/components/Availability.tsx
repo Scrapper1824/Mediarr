@@ -13,6 +13,7 @@ interface AvailabilityData {
     startsAt: string | null;
     allOutBy: string | null;
     paused: { until: string | null } | null;
+    next: { episode: number; at: string } | null;
     estimated: boolean;
     source: { name: string; url: string };
   } | null;
@@ -42,10 +43,12 @@ function dubLine(a: AvailabilityData): string {
   if (d.complete) return a.total ? `All ${a.total} episodes out` : 'All episodes out';
   if (d.paused) return d.paused.until ? `On a break until ${when(d.paused.until)}` : 'On a break, no return date yet';
   if (d.startsAt) return `Starts ${when(d.startsAt)}${d.allOutBy ? `, all out around ${when(d.allOutBy)}` : ''}`;
-  if (d.out === null) return 'Available, episode count unknown';
+  if (d.out === null) return 'Available (how many episodes are dubbed isn’t listed yet)';
   const about = d.estimated ? 'About ' : '';
-  if (!a.total) return `${about}${d.out} out so far`;
-  return `${about}${d.out} of ${a.total} out${d.allOutBy ? `, all out around ${when(d.allOutBy)}` : ''}`;
+  const parts = [a.total ? `${about}${d.out} of ${a.total} out` : `${about}${d.out} out so far`];
+  if (d.next) parts.push(`episode ${d.next.episode} on ${when(d.next.at)}`);
+  if (d.allOutBy) parts.push(`all out around ${when(d.allOutBy)}`);
+  return parts.join(', ');
 }
 
 const useAvailability = (anilistId: number | undefined) =>

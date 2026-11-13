@@ -16,6 +16,7 @@ const dub = (over: Partial<DubSchedule>): DubSchedule => ({
   dubBatches: [],
   episodes: 12,
   status: 'Ongoing',
+  dubNext: null,
   url: 'https://animeschedule.net/anime/x',
   ...over,
 });

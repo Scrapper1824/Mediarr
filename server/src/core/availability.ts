@@ -33,6 +33,8 @@ export interface Availability {
     allOutBy: string | null;
     /** On a break right now; `until` null when no return date is known. */
     paused: { until: string | null } | null;
+    /** The next dubbed episode, when AnimeSchedule lists it. */
+    next: { episode: number; at: string } | null;
     estimated: boolean;
     source: { name: string; url: string };
   } | null;
@@ -55,8 +57,26 @@ export function subAvailability(a: AiringInfo, now: number): Availability['sub']
 }
 
 export function dubAvailability(d: DubSchedule, sub: Availability['sub'], total: number | null, now: number): NonNullable<Availability['dub']> {
-  const base = { source: { name: 'AnimeSchedule', url: d.url }, estimated: true };
+  const base = { source: { name: 'AnimeSchedule', url: d.url }, estimated: true, next: null };
   if (!d.dubExists) return { ...base, exists: false, out: 0, complete: false, startsAt: null, allOutBy: null, paused: null };
+  // AnimeSchedule lists the next dubbed episode: count from that instead of estimating.
+  if (d.dubNext) {
+    const at = ms(d.dubNext.at);
+    const out = Math.max(0, at > now ? d.dubNext.episode - 1 : d.dubNext.episode);
+    const complete = !!total && out >= total;
+    const allOutBy = total && !complete ? new Date(at + Math.max(0, total - d.dubNext.episode) * WEEK).toISOString() : null;
+    return {
+      ...base,
+      exists: true,
+      out,
+      complete,
+      startsAt: out === 0 ? d.dubNext.at : null,
+      allOutBy,
+      paused: null,
+      next: complete || at <= now ? null : d.dubNext,
+      estimated: false,
+    };
+  }
   // No premiere date: a finished show whose dub exists has it all (e.g. a streaming service's same-day dub).
   if (!d.dubPremier) {
     const all = sub.complete && total ? total : null;
