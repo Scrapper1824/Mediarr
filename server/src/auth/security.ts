@@ -31,6 +31,8 @@ export const USER_ALLOWED = new Set([
   'GET /api/discover/info',
   'GET /api/discover/details',
   'GET /api/discover/availability',
+  'GET /api/discover/filter',
+  'GET /api/discover/genres',
   'GET /api/media',
   'GET /api/media/:id',
   'POST /api/media',

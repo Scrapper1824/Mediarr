@@ -14,6 +14,8 @@ export interface SearchResult {
   libraryId: number | null;
   /** Asked for and waiting for an admin's approval. */
   requested?: boolean;
+  /** Anime in filtered lists: has an English dub (null: not known). */
+  dubbed?: boolean | null;
 }
 
 export interface Media {

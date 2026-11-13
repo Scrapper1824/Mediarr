@@ -559,3 +559,118 @@ export async function anilistIdsForMal(malIds: number[]): Promise<Map<number, nu
   }
   return out;
 }
+
+// ---- Discover filters ----
+
+export interface AnimeFilter {
+  genres: string[];
+  yearFrom: number | null;
+  yearTo: number | null;
+  minRating: number | null;
+  sort: 'popular' | 'trending' | 'top' | 'newest' | 'oldest' | 'title';
+  status: 'released' | 'airing' | 'ended' | 'finished' | 'upcoming' | null;
+  formats: string[];
+  season: 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL' | null;
+  q: string | null;
+}
+
+/** An anime from a filtered list, with what's needed to match it on AnimeSchedule. */
+export interface FilteredAnime {
+  anilistId: number;
+  result: SearchResult;
+  names: string[];
+  aliases: string[];
+  year: number | null;
+  episodes: number | null;
+}
+
+let genreList: { at: number; list: string[] } | null = null;
+
+/** AniList's anime genres (cached for a day; the adult one is left out). */
+export async function animeGenres(): Promise<string[]> {
+  if (genreList && Date.now() - genreList.at < 24 * 3600_000) return genreList.list;
+  const data = await gql<{ GenreCollection: string[] }>('query { GenreCollection }', {});
+  genreList = { at: Date.now(), list: data.GenreCollection.filter((g) => g !== 'Hentai') };
+  return genreList.list;
+}
+
+const ANIME_SORT: Record<AnimeFilter['sort'], string> = {
+  popular: 'POPULARITY_DESC',
+  trending: 'TRENDING_DESC',
+  top: 'SCORE_DESC',
+  newest: 'START_DATE_DESC',
+  oldest: 'START_DATE',
+  title: 'TITLE_ROMAJI',
+};
+const ANIME_STATUS: Record<string, string> = { airing: 'RELEASING', finished: 'FINISHED', ended: 'FINISHED', released: 'FINISHED', upcoming: 'NOT_YET_RELEASED' };
+
+/** The AniList variables for a filter (exported for tests). */
+export function animeFilterVariables(f: AnimeFilter, page: number, perPage = 30): Record<string, unknown> {
+  const formats = f.formats.flatMap((x) => (x === 'TV' ? ['TV', 'TV_SHORT'] : [x]));
+  const sort = f.q && f.sort === 'popular' ? ['SEARCH_MATCH', 'POPULARITY_DESC'] : [ANIME_SORT[f.sort]];
+  return {
+    page,
+    perPage,
+    sort,
+    genres: f.genres.length ? f.genres : null,
+    status: f.status ? ANIME_STATUS[f.status] : null,
+    // "Newest" means newest that has started, unless you asked for upcoming ones.
+    statusNot: !f.status && f.sort === 'newest' ? 'NOT_YET_RELEASED' : null,
+    formats: formats.length ? formats : null,
+    season: f.season,
+    seasonYear: f.season && f.yearFrom && f.yearFrom === f.yearTo ? f.yearFrom : null,
+    // AniList's date filters are "after" / "before" (YYYYMMDD numbers).
+    from: f.yearFrom ? f.yearFrom * 10000 : null,
+    to: f.yearTo ? (f.yearTo + 1) * 10000 : null,
+    score: f.minRating ? Math.round(f.minRating * 10) - 1 : null,
+    search: f.q,
+  };
+}
+
+export async function filterAnime(f: AnimeFilter, page: number, perPage = 30): Promise<{ media: FilteredAnime[]; hasNext: boolean }> {
+  const vars = animeFilterVariables(f, page, perPage);
+  // Only the filters in use are sent (AniList rejects some combinations of empty ones).
+  const ARGS: Record<string, [string, string]> = {
+    sort: ['sort', '[MediaSort]'],
+    genres: ['genre_in', '[String]'],
+    status: ['status', 'MediaStatus'],
+    statusNot: ['status_not', 'MediaStatus'],
+    formats: ['format_in', '[MediaFormat]'],
+    season: ['season', 'MediaSeason'],
+    seasonYear: ['seasonYear', 'Int'],
+    from: ['startDate_greater', 'FuzzyDateInt'],
+    to: ['startDate_lesser', 'FuzzyDateInt'],
+    score: ['averageScore_greater', 'Int'],
+    search: ['search', 'String'],
+  };
+  const used = Object.keys(ARGS).filter((k) => vars[k] !== null && vars[k] !== undefined);
+  const decl = ['$page: Int', '$perPage: Int', ...used.map((k) => `$${k}: ${ARGS[k][1]}`)].join(', ');
+  const args = ['type: ANIME', 'isAdult: false', ...used.map((k) => `${ARGS[k][0]}: $${k}`)].join(', ');
+  const variables: Record<string, unknown> = { page: vars.page, perPage: vars.perPage };
+  for (const k of used) variables[k] = vars[k];
+  const data = await gql<{ Page: { pageInfo: { hasNextPage: boolean }; media: any[] } }>(
+    `query (${decl}) {
+      Page(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage }
+        media(${args}) {
+          id title { romaji english native } synonyms format episodes nextAiringEpisode { episode }
+          seasonYear startDate { year } coverImage { large } description(asHtml: false)
+        }
+      }
+    }`,
+    variables,
+  );
+  return {
+    hasNext: data.Page.pageInfo.hasNextPage,
+    media: data.Page.media
+      .filter((m) => m.coverImage?.large)
+      .map((m) => ({
+        anilistId: m.id,
+        result: toBrowseResult(m),
+        names: [m.title?.romaji, m.title?.english, m.title?.native].filter(Boolean),
+        aliases: (m.synonyms ?? []).filter(Boolean),
+        year: m.seasonYear ?? m.startDate?.year ?? null,
+        episodes: m.episodes ?? null,
+      })),
+  };
+}

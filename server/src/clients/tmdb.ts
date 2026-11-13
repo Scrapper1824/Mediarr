@@ -385,3 +385,84 @@ export async function tmdbDetails(type: 'movie' | 'show', id: number) {
       : null,
   };
 }
+
+// ---- Discover filters ----
+
+const genreCache = new Map<string, { at: number; list: { id: string; name: string }[] }>();
+
+/** TMDB's genre list for movies or TV (cached for a day). */
+export async function tmdbGenres(type: 'movie' | 'show'): Promise<{ id: string; name: string }[]> {
+  const hit = genreCache.get(type);
+  if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.list;
+  const r = await tmdb<{ genres: { id: number; name: string }[] }>(`/genre/${type === 'movie' ? 'movie' : 'tv'}/list`, { language: 'en-US' });
+  const list = r.genres.map((g) => ({ id: String(g.id), name: g.name }));
+  genreCache.set(type, { at: Date.now(), list });
+  return list;
+}
+
+export interface TmdbFilter {
+  genres: string[];
+  yearFrom: number | null;
+  yearTo: number | null;
+  minRating: number | null;
+  sort: 'popular' | 'trending' | 'top' | 'newest' | 'oldest' | 'title';
+  language: string | null;
+  status: 'released' | 'airing' | 'ended' | 'finished' | 'upcoming' | null;
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/** The TMDB discover parameters for a filter (exported for tests). */
+export function tmdbFilterParams(type: 'movie' | 'show', f: TmdbFilter, page: number, now = new Date()): Record<string, string> {
+  const movie = type === 'movie';
+  const date = movie ? 'primary_release_date' : 'first_air_date';
+  const today = isoDay(now);
+  const tomorrow = isoDay(new Date(now.getTime() + 86400_000));
+  const p: Record<string, string> = { include_adult: 'false', page: String(page), language: 'en-US' };
+  p.sort_by = {
+    popular: 'popularity.desc',
+    trending: 'popularity.desc',
+    top: 'vote_average.desc',
+    newest: `${date}.desc`,
+    oldest: `${date}.asc`,
+    title: movie ? 'title.asc' : 'name.asc',
+  }[f.sort];
+  // "Top rated" means rated by enough people to count.
+  if (f.sort === 'top') p['vote_count.gte'] = movie ? '300' : '150';
+  const genres = f.genres.filter((g) => /^\d+$/.test(g));
+  if (genres.length) p.with_genres = genres.join(','); // all of them
+  let from: string | null = f.yearFrom ? `${f.yearFrom}-01-01` : null;
+  let to: string | null = f.yearTo ? `${f.yearTo}-12-31` : null;
+  const notAfter = (d: string) => (to = to && to < d ? to : d);
+  const notBefore = (d: string) => (from = from && from > d ? from : d);
+  if (f.minRating) {
+    p['vote_average.gte'] = String(f.minRating);
+    p['vote_count.gte'] ??= '50';
+  }
+  if (f.language) p.with_original_language = f.language;
+  if (movie) {
+    if (f.status === 'released') notAfter(today);
+    if (f.status === 'upcoming') notBefore(tomorrow);
+  } else {
+    if (f.status === 'airing') p.with_status = '0'; // returning series
+    if (f.status === 'ended' || f.status === 'finished') p.with_status = '3|4'; // ended or cancelled
+    if (f.status === 'upcoming') p.with_status = '1|2'; // planned or in production
+  }
+  // "Newest" means newest that's out, unless you asked for upcoming ones.
+  if (f.sort === 'newest' && f.status !== 'upcoming') notAfter(today);
+  if (from) p[`${date}.gte`] = from;
+  if (to) p[`${date}.lte`] = to;
+  return p;
+}
+
+/** TMDB's discover endpoint with the Discover filters. Anime is left out (it has its own tab). */
+export async function filterTmdb(type: 'movie' | 'show', f: TmdbFilter, page: number): Promise<{ items: SearchResult[]; nextPage: number | null }> {
+  const movie = type === 'movie';
+  const r = await tmdb<{ results: any[]; page: number; total_pages: number }>(`/discover/${movie ? 'movie' : 'tv'}`, tmdbFilterParams(type, f, page));
+  const items = r.results.filter((x) => x.poster_path && !x.adult && !isAnimeTitle(x)).map(movie ? toMovie : toShow);
+  return {
+    items: movie ? items : await withEpisodeCounts(items),
+    // TMDB serves at most 500 pages.
+    nextPage: r.page < Math.min(r.total_pages, 500) ? r.page + 1 : null,
+  };
+}

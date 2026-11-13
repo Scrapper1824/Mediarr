@@ -1,4 +1,4 @@
-import { fetchJson } from './http.js';
+import { fetchJson, HttpError } from './http.js';
 
 /**
  * AnimeSchedule.net: whether an anime has an English dub, and when the dub started / starts.
@@ -27,6 +27,38 @@ export interface DubSchedule {
 }
 
 const BASE = 'https://animeschedule.net';
+
+// AnimeSchedule allows only a few requests a second: they go out one at a time, a little apart,
+// and a 'too many requests' answer is retried once after a short wait.
+const GAP_MS = 350;
+let queue: Promise<unknown> = Promise.resolve();
+let last = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function paced<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(async () => {
+    const wait = last + GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    last = Date.now();
+    try {
+      return await task();
+    } catch (err) {
+      if ((err as HttpError).status !== 429) throw err;
+      await sleep(3000);
+      last = Date.now();
+      return task();
+    }
+  });
+  queue = run.catch(() => undefined);
+  return run;
+}
+const getJson = <T>(url: string) => paced(() => fetchJson<T>(url, { headers: { accept: 'application/json', 'user-agent': 'Mediarr (self-hosted media manager)' } }));
+async function getHtml(url: string): Promise<string | null> {
+  return paced(async () => {
+    const res = await fetch(url, { headers: { accept: 'text/html', 'user-agent': 'Mediarr (self-hosted media manager)' }, signal: AbortSignal.timeout(20000) });
+    if (res.status === 429) throw new HttpError('429 Too Many Requests', 429);
+    return res.ok ? res.text() : null;
+  });
+}
 /** Their "no date" value. */
 const realDate = (s: unknown): string | null => (typeof s === 'string' && !s.startsWith('0001-') ? s : null);
 
@@ -68,24 +100,127 @@ export function parseDubNext(html: string): DubSchedule['dubNext'] {
   return { episode, at: at.toISOString() };
 }
 
-const HEADERS = { 'user-agent': 'Mediarr (self-hosted media manager)' };
 
 /** The dub schedule for an AniList entry, or null when AnimeSchedule doesn't know the title. */
 export async function dubScheduleFor(anilistId: number): Promise<DubSchedule | null> {
-  const r = await fetchJson<{ anime?: Record<string, unknown>[] }>(`${BASE}/api/v3/anime?anilist-ids=${anilistId}`, {
-    headers: { accept: 'application/json', ...HEADERS },
-  });
+  const r = await getJson<{ anime?: Record<string, unknown>[] }>(`${BASE}/api/v3/anime?anilist-ids=${anilistId}`);
   const a = r.anime?.[0];
   if (!a) return null;
   const d = parseDubSchedule(a);
   // Still being dubbed: which episode is next (the page shows it; the API doesn't).
   if (d.dubExists && d.status !== 'Finished' && typeof a.route === 'string' && a.route) {
     try {
-      const res = await fetch(`${BASE}/anime/${encodeURIComponent(a.route)}`, { headers: { accept: 'text/html', ...HEADERS }, signal: AbortSignal.timeout(20000) });
-      if (res.ok) d.dubNext = parseDubNext(await res.text());
+      const html = await getHtml(`${BASE}/anime/${encodeURIComponent(a.route)}`);
+      if (html) d.dubNext = parseDubNext(html);
     } catch {
       // the estimate from the start date still works
     }
   }
   return d;
+}
+
+// ---- Which anime have an English dub (for Discover's Dubbed / Sub only filter) ----
+
+const dubCache = new Map<number, { at: number; dub: boolean | null }>();
+const DUB_TTL_MS = 24 * 3600_000;
+/** AnimeSchedule returns this many per page. */
+const AS_PAGE = 18;
+
+/** Letters and digits only, lower case: "Re:Zero" and "re zero" compare equal. */
+export const sameName = (s: string) => s.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '');
+
+export interface DubCandidate {
+  anilistId: number;
+  /** Official titles (romaji, English, native). */
+  names: string[];
+  /** Other names; only used when the official ones don't match (they're often shared, e.g. "Gintama"). */
+  aliases?: string[];
+  year: number | null;
+  episodes: number | null;
+}
+
+/**
+ * Matches AnimeSchedule entries back to the AniList titles they were asked for (their list answers
+ * don't include the AniList id): by official title, then by other names, then by year + episode count
+ * when that's unique.
+ */
+export function matchDubs(asked: DubCandidate[], found: Record<string, unknown>[]): { dub: Map<number, boolean>; unmatched: number } {
+  const dub = new Map<number, boolean>();
+  const namesOf = (a: Record<string, unknown>, withAliases: boolean) => {
+    const n = a.names as Record<string, unknown> | undefined;
+    return new Set(
+      [a.title, a.preferredTitle, n?.romaji, n?.english, n?.native, ...(withAliases ? ((n?.synonyms as unknown[]) ?? []) : [])]
+        .filter((x): x is string => typeof x === 'string')
+        .map(sameName)
+        .filter(Boolean),
+    );
+  };
+  let left = found;
+  for (const withAliases of [false, true]) {
+    const next: Record<string, unknown>[] = [];
+    for (const a of left) {
+      const theirs = namesOf(a, withAliases);
+      const ours = (c: DubCandidate) => (withAliases ? [...c.names, ...(c.aliases ?? [])] : c.names);
+      const hit = asked.find((c) => !dub.has(c.anilistId) && ours(c).some((n) => theirs.has(sameName(n))));
+      if (hit) dub.set(hit.anilistId, !!a.dubExists);
+      else next.push(a);
+    }
+    left = next;
+  }
+  let unmatched = 0;
+  for (const a of left) {
+    const fits = asked.filter((c) => !dub.has(c.anilistId) && c.year !== null && c.year === a.year && c.episodes !== null && c.episodes === a.episodes);
+    if (fits.length === 1) dub.set(fits[0].anilistId, !!a.dubExists);
+    else unmatched++;
+  }
+  return { dub, unmatched };
+}
+
+async function asList(query: string): Promise<{ anime: Record<string, unknown>[]; total: number }> {
+  try {
+    const r = await getJson<{ anime?: Record<string, unknown>[]; totalAmount?: number }>(`${BASE}/api/v3/anime?${query}`);
+    return { anime: r.anime ?? [], total: r.totalAmount ?? 0 };
+  } catch (err) {
+    // "Couldn't find anime with these parameters." comes back as a 404.
+    if ((err as { status?: number }).status === 404) return { anime: [], total: 0 };
+    throw err;
+  }
+}
+
+/**
+ * For each AniList title: true (has an English dub), false (no dub), or null (AnimeSchedule doesn't
+ * know it). Asked in one batch (a few pages), remembered for a day.
+ */
+export async function dubbedAmong(titles: DubCandidate[]): Promise<Map<number, boolean | null>> {
+  const out = new Map<number, boolean | null>();
+  const todo: DubCandidate[] = [];
+  for (const t of titles) {
+    const hit = dubCache.get(t.anilistId);
+    if (hit && Date.now() - hit.at < DUB_TTL_MS) out.set(t.anilistId, hit.dub);
+    else todo.push(t);
+  }
+  if (!todo.length) return out;
+  const ids = todo.map((t) => `anilist-ids=${t.anilistId}`).join('&');
+  const found: Record<string, unknown>[] = [];
+  for (let page = 1; page <= Math.ceil(todo.length / AS_PAGE) + 1; page++) {
+    const r = await asList(`mt=any&${ids}&page=${page}`);
+    found.push(...r.anime);
+    if (!r.anime.length || found.length >= r.total) break;
+  }
+  const { dub, unmatched } = matchDubs(todo, found);
+  // A few couldn't be matched by name: ask about those one at a time.
+  const unresolved = todo.filter((t) => !dub.has(t.anilistId));
+  if (unmatched > 0 && unresolved.length <= 2) {
+    for (const t of unresolved) {
+      const r = await asList(`anilist-ids=${t.anilistId}`);
+      if (r.anime[0]) dub.set(t.anilistId, !!r.anime[0].dubExists);
+    }
+  }
+  for (const t of todo) {
+    const d = dub.has(t.anilistId) ? dub.get(t.anilistId)! : null;
+    out.set(t.anilistId, d);
+    dubCache.set(t.anilistId, { at: Date.now(), dub: d });
+  }
+  if (dubCache.size > 5000) for (const k of [...dubCache.keys()].slice(0, 1000)) dubCache.delete(k);
+  return out;
 }

@@ -45,6 +45,7 @@ import { playTarget } from '../core/home.js';
 import { approveRequest, cancelRequest, createRequest, denyRequest, listRequests, pendingCount } from '../core/requests.js';
 import { needsApproval } from '../auth/security.js';
 import { availabilityFor } from '../core/availability.js';
+import { discoverFiltered, genresFor, parseFilter } from '../core/discoverFilter.js';
 
 const MASK = '********';
 
@@ -228,6 +229,19 @@ export async function apiRoutes(app: FastifyInstance) {
       featured: withLibraryIds(type, cached.featured),
       rows: cached.rows.map((r) => ({ ...r, items: withLibraryIds(type, r.items) })),
     };
+  });
+
+  // Discover filters: genre, years, rating, status, format, dub/sub... (one page at a time).
+  app.get<{ Querystring: Record<string, string> & { type: MediaType; page?: string } }>('/api/discover/filter', async (req, reply) => {
+    const type = req.query.type;
+    if (!['movie', 'show', 'anime'].includes(type)) return reply.code(400).send({ error: 'Unknown type' });
+    const page = Math.min(500, Math.max(1, Math.floor(Number(req.query.page) || 1)));
+    const r = await discoverFiltered(type, parseFilter(req.query), page);
+    return { items: withLibraryIds(type, r.items), nextPage: r.nextPage };
+  });
+  app.get<{ Querystring: { type: MediaType } }>('/api/discover/genres', async (req, reply) => {
+    if (!['movie', 'show', 'anime'].includes(req.query.type)) return reply.code(400).send({ error: 'Unknown type' });
+    return genresFor(req.query.type);
   });
 
   // Anime: what's out subbed and dubbed, and when the rest is expected (cached a few hours).
