@@ -15,6 +15,19 @@
 
 ## Install
 
+### The easy way (Windows)
+
+Download **[MediarrSetup.exe](https://github.com/Scrapper1824/Mediarr/releases/latest/download/MediarrSetup.exe)** and run it. It:
+
+1. asks where to install Mediarr (it keeps its settings and library database in that folder)
+2. checks for **Node.js**, **Git** and **FFmpeg**, and offers to install any that are missing (with winget)
+3. downloads the latest release from this repository, installs its packages and builds it
+4. adds Mediarr to the Start menu and the desktop, starts it and shows your first-run **setup code**
+
+Windows may warn that the app is from an unknown publisher (it isn't code-signed): click **More info → Run anyway**. If something goes wrong, the full log is in `%TEMP%\MediarrSetup.log`.
+
+### By hand
+
 Needs **Node.js 22.13+** and **Git**, plus **FFmpeg** for watching.
 
 ```bash

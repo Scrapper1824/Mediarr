@@ -70,5 +70,10 @@ if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/').replace(
   run('git', ['tag', '-a', tag, '-m', `Mediarr ${tag}`]);
   run('git', ['push', 'origin', 'main', tag]);
   run('gh', ['release', 'create', tag, '--title', `Mediarr ${tag}`, '--generate-notes', '--verify-tag']);
+  // The Windows installer (MediarrSetup.exe) goes on every release, so "latest/download/MediarrSetup.exe" always works.
+  if (process.platform === 'win32') {
+    run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'installer', 'build.ps1')]);
+    run('gh', ['release', 'upload', tag, path.join(root, 'installer', 'dist', 'MediarrSetup.exe'), '--clobber']);
+  }
   console.log(`\nReleased ${tag}. Mediarr installs will offer it as an update.`);
 }
