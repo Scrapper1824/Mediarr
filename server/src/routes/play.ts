@@ -13,6 +13,7 @@ import { createSession, endSession, getSession, playlistPath, waitForSegment } f
 import { queueMediaWork, workPending } from '../playback/jobs.js';
 import { getSegments } from '../playback/segments.js';
 import { trickplayManifest, trickplaySheet } from '../playback/trickplay.js';
+import { inTitleDirs } from '../core/rootFolders.js';
 
 type Kind = 'movie' | 'episode';
 
@@ -41,7 +42,7 @@ function playable(kindParam: string, idParam: string): Playable {
   }
   const file = kind === 'movie' ? media?.file_path : episode?.file_path;
   if (!media || !file) throw bad(404, 'Nothing to play here yet');
-  if (!isInside(file, path.join(media.root_folder, media.folder_name))) throw bad(403, 'That file isn’t in the library');
+  if (!inTitleDirs(media, file)) throw bad(403, 'That file isn’t in the library');
   if (!fs.existsSync(file)) throw bad(404, 'The file is missing from disk');
   return { kind, id, media, episode, file };
 }

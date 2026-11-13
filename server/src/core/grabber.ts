@@ -16,7 +16,7 @@ import {
 import { getSettings } from '../settings.js';
 import { matchAnime, standaloneSequel } from './animeMatch.js';
 import { watchFiles } from './fileSelection.js';
-import { ensureRoom } from './rootFolders.js';
+import { chooseSeriesRoot, ensureRoom } from './rootFolders.js';
 import { isAired, mediaTitles, seasonsFor } from './library.js';
 import { parseRelease } from './releaseParser.js';
 import { coverageLabel, rankReleases, type ScoredRelease, type SearchScope } from './scoring.js';
@@ -133,10 +133,21 @@ export async function grabRelease(m: MediaRow, release: GrabbableRelease, episod
   // A background search can outlive the series if it was removed meanwhile.
   const current = getMedia(m.id);
   if (!current) throw new Error(`${m.title} was removed from the library`);
-  // Won't fit on the title's drive: move the title to another library folder with room first.
-  m = await ensureRoom(current, release.size);
-  // Straight into the media's own folder; once qBittorrent knows the files they get their clean names (watchFiles).
-  const savePath = path.join(m.root_folder, m.folder_name);
+  let savePath: string;
+  if (current.type === 'movie') {
+    // Won't fit on the movie's drive: move it to another library folder with room first.
+    m = await ensureRoom(current, release.size);
+    // Straight into the media's own folder; once qBittorrent knows the files they get their clean names (watchFiles).
+    savePath = path.join(m.root_folder, m.folder_name);
+  } else {
+    // Shows/anime: into the series folder on a drive that keeps its free space (it may be split across drives).
+    m = current;
+    const root = chooseSeriesRoot(m, release.size);
+    savePath = path.join(root, m.folder_name);
+    if (path.resolve(root).toLowerCase() !== path.resolve(m.root_folder).toLowerCase()) {
+      logHistory(m.id, 'moved', `${m.root_folder} would drop below ${getSettings().minFreeSpaceGb} GB free, so "${release.title}" goes to ${savePath} (the rest of "${m.title}" stays where it is)`);
+    }
+  }
   const r = db
     .prepare(`INSERT INTO downloads (media_id, episode_ids, release_title, indexer, size, save_path, select_files, state, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`)

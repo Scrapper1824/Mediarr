@@ -84,6 +84,60 @@ async function folderBytes(dir: string): Promise<number> {
   return total;
 }
 
+const inside = (child: string, parent: string) => {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+type Placed = Pick<MediaRow, 'type' | 'root_folder' | 'folder_name'>;
+
+/**
+ * Every folder a title may keep files in. A movie has one. A show or anime can be split across drives:
+ * its own folder, plus a folder with the same name in any of its type's other library folders.
+ */
+export function titleDirs(m: Placed, opts: { existingOnly?: boolean } = {}): string[] {
+  const main = path.join(m.root_folder, m.folder_name);
+  if (m.type === 'movie') return [main];
+  const others = rootsFor(getSettings(), m.type)
+    .filter((r) => !samePath(r, m.root_folder))
+    .map((r) => path.join(r, m.folder_name))
+    .filter((d) => !opts.existingOnly || fs.existsSync(d));
+  return [main, ...others];
+}
+
+/** True when `file` is inside one of the title's folders (on any of its drives). */
+export const inTitleDirs = (m: Placed, file: string) => titleDirs(m).some((d) => inside(file, d));
+
+/** The title's folder a download was saved into: its own, or the one on the drive it spilled onto. */
+export function titleDirFor(m: Placed, savePath: string): string {
+  return titleDirs(m).find((d) => samePath(d, savePath)) ?? path.join(m.root_folder, m.folder_name);
+}
+
+/**
+ * Where a show's or anime's next download goes. Its own drive while that keeps the free space set in
+ * Settings (Minimum free space), else the next library folder that does: one already holding part of
+ * the series first, then the rest in the order listed. Nothing is moved; the series is just split.
+ * When no drive can keep that much free, the drive with the most room left takes it (never filling it).
+ */
+export function chooseSeriesRoot(m: MediaRow, size: number | null | undefined, space: (p: string) => FolderSpace = folderSpace): string {
+  const s = getSettings();
+  const others = rootsFor(s, m.type).filter((r) => !samePath(r, m.root_folder));
+  const holding = (r: string) => fs.existsSync(path.join(r, m.folder_name));
+  const order = [m.root_folder, ...others.filter(holding), ...others.filter((r) => !holding(r))];
+  const infos = order.map(space).filter((i) => i.exists);
+  if (!infos.length) return m.root_folder;
+  if (!size || size <= 0) return infos[0].path;
+  const keep = Math.max(SAFETY_MARGIN, Math.max(0, s.minFreeSpaceGb) * GB);
+  const left = (i: FolderSpace) => (i.freeBytes === null ? Infinity : i.freeBytes - pendingBytes(i.path) - size);
+  const roomy = infos.find((i) => left(i) >= keep);
+  if (roomy) return roomy.path;
+  const best = infos.reduce((a, b) => (left(b) > left(a) ? b : a));
+  if (left(best) >= SAFETY_MARGIN) return best.path;
+  throw new Error(
+    `Not enough space for "${m.title}": the download needs ${gbText(size)} and no ${m.type === 'show' ? 'Shows' : 'Anime'} folder has room. Free up space or add a folder on another drive in Settings.`,
+  );
+}
+
 /** Titles whose files are being moved to another library folder right now. */
 const moving = new Map<number, Promise<void>>();
 

@@ -285,7 +285,7 @@ function AdminSettings() {
                   onChange={(folders) => setForm({ ...form, [key]: folders })}
                 />
               ))}
-              <Field label="Keep free on each drive (GB)" hint="When a drive has less free space than this, new titles go to the next folder.">
+              <Field label="Keep free on each drive (GB)" hint="When a drive has less free space than this, new titles go to the next folder. A show or anime that would push its drive below this keeps its new episodes in a folder of the same name on the next drive (it plays as one series).">
                 {num('minFreeSpaceGb', { min: 0 })}
               </Field>
             </section>

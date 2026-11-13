@@ -7,6 +7,7 @@ import { rootsFor, getSettings } from '../settings.js';
 import { isExtra, isInside, isSample, matchFile, walk } from './importer.js';
 import { addMedia } from './library.js';
 import { normalizeTitle, parseRelease, splitSequel } from './releaseParser.js';
+import { titleDirs } from './rootFolders.js';
 
 /**
  * Library scan, like Jellyfin's: title folders already in the library folders are identified on
@@ -90,9 +91,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Records the video files in a title's folder against the title / its episodes. Returns how many were linked. */
 export async function linkFiles(m: MediaRow): Promise<number> {
-  const dir = path.join(m.root_folder, m.folder_name);
-  if (!fs.existsSync(dir)) return 0;
-  const videos = (await walk(dir)).filter((f) => VIDEO.test(f.full) && !isSample(f) && !isExtra(path.relative(dir, f.full)));
+  // A series can be split across drives: look in its folder on each of them.
+  const dirs = titleDirs(m, { existingOnly: true }).filter((d) => fs.existsSync(d));
+  if (!dirs.length) return 0;
+  const found: { full: string; size: number; dir: string }[] = [];
+  for (const d of dirs) for (const f of await walk(d)) found.push({ ...f, dir: d });
+  const videos = found.filter((f) => VIDEO.test(f.full) && !isSample(f) && !isExtra(path.relative(f.dir, f.full)));
   if (!videos.length) return 0;
 
   if (m.type === 'movie') {
@@ -109,7 +113,7 @@ export async function linkFiles(m: MediaRow): Promise<number> {
   const regular = episodes.filter((e) => e.season > 0);
   for (const v of videos) {
     if (known.has(path.resolve(v.full).toLowerCase())) continue;
-    let matched = matchFile(m, path.relative(dir, v.full), episodes, null);
+    let matched = matchFile(m, path.relative(v.dir, v.full), episodes, null);
     // A one-episode title (an anime film, a special) whose file has no episode number.
     if (!matched.length && regular.length === 1 && videos.length === 1) matched = regular;
     for (const e of matched.filter((x) => !x.has_file || !x.file_path || !fs.existsSync(x.file_path))) {
@@ -122,7 +126,9 @@ export async function linkFiles(m: MediaRow): Promise<number> {
 
 /** Files that were deleted outside Mediarr: forget them (only when their library folder is there, so an unplugged drive changes nothing). */
 function dropMissing(m: MediaRow): number {
-  if (!fs.existsSync(m.root_folder)) return 0;
+  // Each file's own library folder must be there (a split series has files on several drives).
+  const rootOf = (file: string) => titleDirs(m).map((d) => path.dirname(d)).find((r) => isInside(file, r)) ?? m.root_folder;
+  if (m.type === 'movie' && !fs.existsSync(m.root_folder)) return 0;
   let dropped = 0;
   if (m.type === 'movie') {
     if (m.file_path && !fs.existsSync(m.file_path)) {
@@ -133,7 +139,7 @@ function dropMissing(m: MediaRow): number {
   }
   const clear = db.prepare('UPDATE episodes SET has_file = 0, file_path = NULL WHERE id = ?');
   for (const e of getEpisodes(m.id)) {
-    if (e.file_path && !fs.existsSync(e.file_path)) {
+    if (e.file_path && !fs.existsSync(e.file_path) && fs.existsSync(rootOf(e.file_path))) {
       clear.run(e.id);
       dropped++;
     }
@@ -186,7 +192,11 @@ function folders(): { type: MediaType; root: string; folder: string; media: Medi
       }
       for (const e of entries) {
         if (!e.isDirectory() || SKIP.test(e.name)) continue;
-        const media = library.find((m) => sameFolder(path.join(m.root_folder, m.folder_name), path.join(root, e.name))) ?? null;
+        const media =
+          library.find((m) => sameFolder(path.join(m.root_folder, m.folder_name), path.join(root, e.name))) ??
+          // The part of a split series that lives on another drive.
+          (type !== 'movie' ? library.find((m) => m.type === type && m.folder_name.toLowerCase() === e.name.toLowerCase()) : undefined) ??
+          null;
         out.push({ type, root, folder: e.name, media });
       }
     }

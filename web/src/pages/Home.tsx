@@ -8,7 +8,6 @@ import MediaDetails from '../components/MediaDetails';
 import Rail, { RailSkeleton } from '../components/Rail';
 import WatchlistMenu from '../components/WatchlistMenu';
 
-const NEW_MS = 3 * 24 * 3600_000;
 const infoFor = (t: HomeTitle): SearchResult => ({
   type: t.type,
   tmdbId: t.tmdbId,
@@ -85,7 +84,6 @@ function useWatchTags() {
 /** The poster plays (resume, the next episode, or from the start); the name opens the title's page. */
 function PosterCard({ item, watch }: { item: PlayableTitle; watch?: WatchTag }) {
   const wid = watchId(item);
-  const isNew = Date.now() - new Date(item.addedAt).getTime() < NEW_MS;
   const sub = [item.year, item.type !== 'movie' && item.episodeFiles ? `${item.episodeFiles} ep${item.episodeFiles === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ');
   const p = item.play;
   const playText = p ? `${p.resume ? 'Resume' : 'Play'} ${item.title}${p.label ? ` ${shortEp(p.label)}` : ''}` : item.title;
@@ -95,7 +93,6 @@ function PosterCard({ item, watch }: { item: PlayableTitle; watch?: WatchTag }) 
       <Link className="home-poster-link" to={p ? `/watch/${p.kind}/${p.id}` : `/media/${item.mediaId}`} aria-label={playText} title={playText}>
         <div className="home-poster">
           {item.poster ? <img src={item.poster} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{item.title.slice(0, 1)}</div>}
-          {isNew && <span className="home-new">New</span>}
           {p && (
             <span className="home-play-badge" aria-hidden>
               ▶

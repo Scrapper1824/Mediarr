@@ -5,6 +5,7 @@ import { matchAnime } from './animeMatch.js';
 import { seasonsFor } from './library.js';
 import { episodeFileName, movieFileName, seasonFolder } from './naming.js';
 import { parseRelease } from './releaseParser.js';
+import { titleDirFor } from './rootFolders.js';
 
 const VIDEO = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.ts', '.wmv', '.webm', '.mov']);
 const SUBS = new Set(['.srt', '.ass', '.ssa', '.sub', '.idx', '.vtt', '.sup']);
@@ -144,7 +145,8 @@ export interface ImportResult {
 export async function importDownload(dl: DownloadRow, contentPath: string, files?: string[]): Promise<ImportResult> {
   const m = getMedia(dl.media_id);
   if (!m) throw new Error('Media for this download no longer exists');
-  const mediaDir = path.join(m.root_folder, m.folder_name);
+  // The series folder on the drive this download was saved to (a series can be split across drives).
+  const mediaDir = titleDirFor(m, dl.save_path);
 
   const renamedRels = Object.keys(JSON.parse(dl.renamed ?? '{}') as Record<string, number[]>);
   let found: FoundFile[];
@@ -266,7 +268,7 @@ export async function importDownload(dl: DownloadRow, contentPath: string, files
     const st = await fs.stat(dir).catch(() => null);
     const leftoverIsSafe =
       st?.isDirectory() &&
-      isInside(dir, m.root_folder) &&
+      isInside(dir, path.dirname(mediaDir)) &&
       !isInside(mediaDir, dir) &&
       path.resolve(dir) !== path.resolve(mediaDir) &&
       !result.imported.some((f) => isInside(f, dir));

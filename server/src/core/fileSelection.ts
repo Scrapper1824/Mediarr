@@ -5,6 +5,7 @@ import { db, getEpisodes, getMedia, logHistory, now, type DownloadRow, type Epis
 import { isExtra, matchFile, releaseFallbackSeason } from './importer.js';
 import { episodeFileName, movieFileName, sanitize, seasonFolder } from './naming.js';
 import { parseRelease } from './releaseParser.js';
+import { titleDirFor } from './rootFolders.js';
 
 const VIDEO = /\.(mkv|mp4|avi|m4v|ts|wmv|webm|mov)$/i;
 const SUBS = /\.(srt|ass|ssa|sub|idx|vtt|sup)$/i;
@@ -120,7 +121,7 @@ export function planRenames(
   exists: (absPath: string) => boolean = fs.existsSync,
 ): RenamePlan {
   const plan: RenamePlan = { renames: [], targets: {} };
-  const mediaDir = path.join(m.root_folder, m.folder_name);
+  const mediaDir = titleDirFor(m, dl.save_path);
   const episodes = getEpisodes(m.id);
   const wanted = new Set(JSON.parse(dl.episode_ids) as number[]);
   const { sharedTop, fallback, inner } = torrentLayout(m, dl.release_title, wanted, episodes, files);
