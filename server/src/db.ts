@@ -19,6 +19,8 @@ export interface MediaRow {
   backdrop: string | null;
   /** 18+ (TMDB "adult" / AniList isAdult): only shown to users allowed to see it. */
   adult: number;
+  /** 1 once `adult` was read from TMDB/AniList (titles added before Mediarr tracked it start at 0). */
+  adult_checked: number;
   /** Shows: TMDB's season names (JSON {"1": "Season 1", "3": "The Final Season"}). */
   season_names: string | null;
   overview: string | null;
@@ -305,6 +307,7 @@ function migrate() {
   if (!cols.includes('anime_seasons')) db.exec('ALTER TABLE media ADD COLUMN anime_seasons TEXT');
   if (!cols.includes('backdrop')) db.exec('ALTER TABLE media ADD COLUMN backdrop TEXT');
   if (!cols.includes('adult')) db.exec('ALTER TABLE media ADD COLUMN adult INTEGER NOT NULL DEFAULT 0');
+  if (!cols.includes('adult_checked')) db.exec('ALTER TABLE media ADD COLUMN adult_checked INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('season_names')) db.exec('ALTER TABLE media ADD COLUMN season_names TEXT');
   const epCols = (db.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).map((c) => c.name);
   if (!epCols.includes('overview')) db.exec('ALTER TABLE episodes ADD COLUMN overview TEXT');

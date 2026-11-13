@@ -22,6 +22,14 @@ export const CATEGORIES = {
   anime: [5070, 5000],
 } as const;
 
+/**
+ * Prowlarr categories to search for a title. 18+ releases are filed under XXX (6000), and some sites
+ * put them in Other (8000), so those are searched too, but only for titles marked 18+.
+ */
+export function categoriesFor(m: { type: keyof typeof CATEGORIES; adult?: number | boolean | null }): number[] {
+  return m.adult ? [...CATEGORIES[m.type], 6000, 8000] : [...CATEGORIES[m.type]];
+}
+
 export async function testProwlarr(url: string, apiKey: string) {
   const r = await fetchJson<{ version: string }>(`${trimSlash(url)}/api/v1/system/status`, {
     headers: { 'X-Api-Key': apiKey },

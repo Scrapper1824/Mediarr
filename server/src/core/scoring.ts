@@ -2,7 +2,7 @@ import type { ProwlarrRelease } from '../clients/prowlarr.js';
 import type { AnimeAudio, MediaType } from '../db.js';
 import type { Settings } from '../settings.js';
 import { asStandaloneSequel, matchAnime, type AnimeSeason } from './animeMatch.js';
-import { parseRelease, titleMatches, type ParsedRelease } from './releaseParser.js';
+import { normalizeTitle, parseRelease, titleMatches, type ParsedRelease } from './releaseParser.js';
 
 export type SearchScope =
   | { kind: 'movie' }
@@ -125,6 +125,23 @@ function maxSeason(ctx: ScoreContext): number | undefined {
   return counts.length ? Math.max(...counts) : undefined;
 }
 
+/**
+ * "[VAMA] Aika Sano (Ane wa Yanmama Junyuu-chuu)": something else (here a live-action video) that only
+ * names the title in brackets after its own name. "Shingeki no Kyojin (Attack on Titan)" still counts,
+ * since both names are the title's.
+ */
+export function namedAfterOnly(raw: string, titles: string[]): string | null {
+  const s = raw.replace(/^(\s*[[(][^\])]*[\])])+/, '').trim();
+  const m = /^(.+?)\s*\(([^()]+)\)/.exec(s);
+  if (!m) return null;
+  const known = titles.map(normalizeTitle).filter((t) => t.length >= 3);
+  const inside = normalizeTitle(m[2]);
+  const outside = normalizeTitle(m[1]);
+  if (!inside || !known.includes(inside)) return null;
+  if (!outside || known.some((t) => outside.includes(t) || t.includes(outside))) return null;
+  return m[1].trim();
+}
+
 export function scoreRelease(r: ProwlarrRelease, ctx: ScoreContext): ScoredRelease {
   const p = parseRelease(r.title);
   const s = ctx.settings;
@@ -133,6 +150,8 @@ export function scoreRelease(r: ProwlarrRelease, ctx: ScoreContext): ScoredRelea
   const titleOk =
     titleMatches(p.title, ctx.titles, maxSeason(ctx)) || (!!ctx.animeSeasons && asStandaloneSequel(p, ctx.animeSeasons) !== null);
   if (!titleOk) rejections.push(`Title mismatch ("${p.title}")`);
+  const other = titleOk ? namedAfterOnly(r.title, ctx.titles) : null;
+  if (other) rejections.push(`A different release ("${other}") that only names the title in brackets`);
   const scope = checkScope(p, ctx);
   if (scope.error) rejections.push(scope.error);
   const notSeries = notSeriesRejection(r.title, p, ctx);

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { addTorrent } from '../clients/qbittorrent.js';
-import { CATEGORIES, resolveTorrent, searchProwlarr, type ProwlarrRelease } from '../clients/prowlarr.js';
+import { categoriesFor, resolveTorrent, searchProwlarr, type ProwlarrRelease } from '../clients/prowlarr.js';
 import {
   activeEpisodeIds,
   db,
@@ -17,7 +17,7 @@ import { getSettings } from '../settings.js';
 import { matchAnime, standaloneSequel } from './animeMatch.js';
 import { watchFiles } from './fileSelection.js';
 import { chooseSeriesRoot, ensureRoom } from './rootFolders.js';
-import { isAired, mediaTitles, seasonsFor } from './library.js';
+import { isAired, mediaTitles, refreshMedia, seasonsFor } from './library.js';
 import { parseRelease } from './releaseParser.js';
 import { coverageLabel, rankReleases, type ScoredRelease, type SearchScope } from './scoring.js';
 
@@ -76,12 +76,18 @@ export async function searchReleases(
   mode: SearchMode = 'targeted',
   cache: QueryCache = new Map(),
 ): Promise<ScoredRelease[]> {
+  // Added before Mediarr tracked 18+: find out first, since 18+ releases sit in other categories.
+  if (!m.adult_checked) {
+    await refreshMedia(m.id).catch(() => undefined);
+    m = getMedia(m.id) ?? m;
+  }
+  const categories = categoriesFor(m);
   const queries = [...queriesFor(m, scope), ...(mode === 'broad' && scope.kind === 'season' ? broadQueriesFor(m) : [])];
   const all: ProwlarrRelease[] = [];
   const errors: string[] = [];
   for (const q of new Set(queries)) {
     try {
-      if (!cache.has(q)) cache.set(q, await searchProwlarr(q, CATEGORIES[m.type]));
+      if (!cache.has(q)) cache.set(q, await searchProwlarr(q, categories));
       all.push(...cache.get(q)!);
     } catch (err) {
       errors.push((err as Error).message);
