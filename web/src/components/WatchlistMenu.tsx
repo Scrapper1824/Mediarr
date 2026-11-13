@@ -13,6 +13,7 @@ export default function WatchlistMenu({
   status,
   className,
   compact,
+  variant,
   info,
 }: {
   type: MediaType;
@@ -20,6 +21,8 @@ export default function WatchlistMenu({
   status: WatchStatus | null;
   className?: string;
   compact?: boolean;
+  /** 'tag': a small status chip for a poster's corner. */
+  variant?: 'tag';
   /** Name, year and poster, so a title new to your list shows up on it straight away. */
   info?: { title: string; year: number | null; poster: string | null };
 }) {
@@ -106,21 +109,49 @@ export default function WatchlistMenu({
   const error = (set.error ?? remove.error) as Error | null;
 
   return (
-    <div className={`wl-menu${className ? ` ${className}` : ''}`} ref={box} onClick={(e) => e.stopPropagation()}>
-      <button
-        ref={trigger}
-        type="button"
-        className={compact ? `btn small full${status ? '' : ' ghost'}` : 'hero-secondary'}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={busy}
-        onClick={() => setOpen((o) => !o)}
-      >
-        {busy ? 'Saving…' : status ? `✓ ${watchStatusLabel[status]}` : '＋ Watchlist'}
-        <span aria-hidden className="wl-caret">
-          ▾
-        </span>
-      </button>
+    <div className={`wl-menu${variant ? ` wl-menu-${variant}` : ''}${className ? ` ${className}` : ''}`} ref={box} onClick={(e) => e.stopPropagation()}>
+      {variant === 'tag' ? (
+        <button
+          ref={trigger}
+          type="button"
+          className={`wl-tag ${status ? `wl-tag-${status}` : 'wl-tag-add'}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={status ? `Watchlist: ${watchStatusLabel[status]}. Change` : 'Add to watchlist'}
+          title={status ? `On your watchlist: ${watchStatusLabel[status]} (click to change)` : 'Add to watchlist'}
+          disabled={busy}
+          onClick={(e) => {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }}
+        >
+          {busy ? (
+            'Saving…'
+          ) : status ? (
+            <>
+              <span className="wl-tag-dot" aria-hidden />
+              {watchStatusLabel[status]}
+            </>
+          ) : (
+            '＋ Watchlist'
+          )}
+        </button>
+      ) : (
+        <button
+          ref={trigger}
+          type="button"
+          className={compact ? `btn small full${status ? '' : ' ghost'}` : 'hero-secondary'}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={busy}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {busy ? 'Saving…' : status ? `✓ ${watchStatusLabel[status]}` : '＋ Watchlist'}
+          <span aria-hidden className="wl-caret">
+            ▾
+          </span>
+        </button>
+      )}
       {open &&
         createPortal(
           <div

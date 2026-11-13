@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, type SearchResult } from '../api';
+import { api, watchId, type MediaType, type SearchResult, type WatchItem, type WatchLinks, type WatchStatus } from '../api';
 import { cardStill, shortEp, type ContinueItem, type HomeData, type HomeTitle, type PlayableTitle } from '../home';
 import HomeHero from '../components/HomeHero';
 import MediaDetails from '../components/MediaDetails';
 import Rail, { RailSkeleton } from '../components/Rail';
+import WatchlistMenu from '../components/WatchlistMenu';
 
 const NEW_MS = 3 * 24 * 3600_000;
 const infoFor = (t: HomeTitle): SearchResult => ({
@@ -57,14 +58,40 @@ function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void
   );
 }
 
+/** A title's place on your watchlists; `undefined` when no connected list takes this kind of title. */
+type WatchTag = { status: WatchStatus | null } | undefined;
+
+/** Your watchlist status for each title, for the tags on the posters. */
+function useWatchTags() {
+  const links = useQuery({ queryKey: ['watchlist', 'links'], queryFn: () => api.get<WatchLinks>('/api/watchlist/links'), staleTime: 5 * 60_000 });
+  const simkl = !!links.data?.simkl.connected;
+  const anilist = !!links.data?.anilist.connected;
+  const list = useQuery({
+    queryKey: ['watchlist', 'items'],
+    queryFn: () => api.get<{ items: WatchItem[]; errors: string[] }>('/api/watchlist'),
+    enabled: simkl || anilist,
+    staleTime: 60_000,
+  });
+  const items = list.data?.items ?? [];
+  return (t: HomeTitle): WatchTag => {
+    const takes = (type: MediaType) => (type === 'anime' ? simkl || anilist : simkl);
+    if (!takes(t.type) || !list.data) return undefined;
+    const id = watchId(t);
+    const hit = items.find((i) => i.libraryId === t.mediaId) ?? (id ? items.find((i) => i.key === `${t.type}:${id}`) : undefined);
+    return { status: hit?.status ?? null };
+  };
+}
+
 /** The poster plays (resume, the next episode, or from the start); the name opens the title's page. */
-function PosterCard({ item }: { item: PlayableTitle }) {
+function PosterCard({ item, watch }: { item: PlayableTitle; watch?: WatchTag }) {
+  const wid = watchId(item);
   const isNew = Date.now() - new Date(item.addedAt).getTime() < NEW_MS;
   const sub = [item.year, item.type !== 'movie' && item.episodeFiles ? `${item.episodeFiles} ep${item.episodeFiles === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ');
   const p = item.play;
   const playText = p ? `${p.resume ? 'Resume' : 'Play'} ${item.title}${p.label ? ` ${shortEp(p.label)}` : ''}` : item.title;
   return (
     <div className="home-poster-card">
+      <div className="home-poster-wrap">
       <Link className="home-poster-link" to={p ? `/watch/${p.kind}/${p.id}` : `/media/${item.mediaId}`} aria-label={playText} title={playText}>
         <div className="home-poster">
           {item.poster ? <img src={item.poster} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{item.title.slice(0, 1)}</div>}
@@ -81,6 +108,17 @@ function PosterCard({ item }: { item: PlayableTitle }) {
           )}
         </div>
       </Link>
+      {watch && wid && (
+        <WatchlistMenu
+          variant="tag"
+          className={watch.status ? 'on' : 'off'}
+          type={item.type}
+          id={wid}
+          status={watch.status}
+          info={{ title: item.title, year: item.year, poster: item.poster }}
+        />
+      )}
+      </div>
       <Link className="home-card-title" to={`/media/${item.mediaId}`} title={`Open ${item.title}`}>
         {item.title}
       </Link>
@@ -93,6 +131,7 @@ function PosterCard({ item }: { item: PlayableTitle }) {
 export default function Home() {
   const q = useQuery({ queryKey: ['home'], queryFn: () => api.get<HomeData>('/api/home'), refetchInterval: 60_000, staleTime: 0 });
   const [info, setInfo] = useState<SearchResult | null>(null);
+  const watchTag = useWatchTags();
   const d = q.data;
 
   return (
@@ -117,7 +156,7 @@ export default function Home() {
       {d && d.recent.length > 0 && (
         <Rail title="Recently added">
           {d.recent.map((t) => (
-            <PosterCard key={t.mediaId} item={t} />
+            <PosterCard key={t.mediaId} item={t} watch={watchTag(t)} />
           ))}
         </Rail>
       )}
@@ -132,7 +171,7 @@ export default function Home() {
           d.libraries[type].length ? (
             <Rail key={type} title={title} seeAll={to}>
               {d.libraries[type].map((t) => (
-                <PosterCard key={t.mediaId} item={t} />
+                <PosterCard key={t.mediaId} item={t} watch={watchTag(t)} />
               ))}
             </Rail>
           ) : null,
