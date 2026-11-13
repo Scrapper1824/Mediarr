@@ -15,7 +15,8 @@ import {
   type SearchResult,
   withEpisodeCounts,
 } from '../clients/tmdb.js';
-import { runImport } from '../core/downloads.js';
+import { runImport, withLiveProgress } from '../core/downloads.js';
+import { filesSummary, removeMedia } from '../core/removeMedia.js';
 import {
   acceptSuggestion,
   autoSearch,
@@ -310,9 +311,9 @@ export async function apiRoutes(app: FastifyInstance) {
       aired: isAired(e.air_date),
       downloading: active.has(e.id),
     }));
-    const downloads = db
-      .prepare('SELECT * FROM downloads WHERE media_id = ? ORDER BY id DESC LIMIT 20')
-      .all(m.id) as unknown as DownloadRow[];
+    const downloads = await withLiveProgress(
+      db.prepare('SELECT * FROM downloads WHERE media_id = ? ORDER BY id DESC LIMIT 20').all(m.id) as unknown as DownloadRow[],
+    );
     const suggestions = (
       db.prepare("SELECT * FROM suggestions WHERE media_id = ? AND status = 'pending' ORDER BY season, id").all(m.id) as {
         release: string;
@@ -340,11 +341,13 @@ export async function apiRoutes(app: FastifyInstance) {
     return mediaSummary(getMedia(m.id)!);
   });
 
-  app.delete<{ Params: { id: string } }>('/api/media/:id', async (req) => {
+  // What's on disk for a title, for the remove dialog (admins only, like removing).
+  app.get<{ Params: { id: string } }>('/api/media/:id/files', async (req) => filesSummary(getMedia(Number(req.params.id)) ?? notFound()));
+
+  app.delete<{ Params: { id: string }; Querystring: { deleteFiles?: string } }>('/api/media/:id', async (req) => {
     const m = getMedia(Number(req.params.id)) ?? notFound();
-    db.prepare('DELETE FROM media WHERE id = ?').run(m.id);
-    logHistory(null, 'removed', `Removed ${m.title} from library (files kept)`);
-    return { ok: true };
+    const r = await removeMedia(m, req.query.deleteFiles === 'true', req.user!.username);
+    return { ok: true, ...r };
   });
 
   app.post<{ Params: { id: string } }>('/api/media/:id/refresh', async (req) => {
@@ -466,13 +469,13 @@ export async function apiRoutes(app: FastifyInstance) {
 
   // ---- Queue & history ----
   app.get('/api/queue', async (req) =>
-    db
+    withLiveProgress(db
       .prepare(
         `SELECT d.*, m.title AS media_title, m.type AS media_type FROM downloads d JOIN media m ON m.id = d.media_id
          WHERE (d.state IN ('queued','downloading','importing') OR (d.state = 'failed' AND d.updated_at > ?)) AND (? = 1 OR m.adult = 0)
          ORDER BY d.id DESC`,
       )
-      .all(new Date(Date.now() - 7 * 86400_000).toISOString(), req.user!.allow_adult ? 1 : 0),
+      .all(new Date(Date.now() - 7 * 86400_000).toISOString(), req.user!.allow_adult ? 1 : 0) as unknown as DownloadRow[]),
   );
 
   app.delete<{ Params: { id: string }; Querystring: { deleteFiles?: string } }>('/api/queue/:id', async (req) => {

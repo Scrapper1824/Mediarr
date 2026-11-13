@@ -12,6 +12,7 @@ import { useAmbient } from '../ambient';
 import { sharp } from '../home';
 import Availability from '../components/Availability';
 import TrailerPlayer from '../components/TrailerPlayer';
+import RemoveDialog from '../components/RemoveDialog';
 import { InfoItem, languageName, Ratings, WatchlistButton, type MediaInfo } from '../components/TitleInfo';
 
 /** Live status of the background search: a spinner while it runs, then what it found. */
@@ -249,13 +250,12 @@ export default function Detail() {
       refresh();
     },
   });
-  const remove = useMutation({
-    mutationFn: () => api.del(`/api/media/${id}`),
-    onSuccess: () => {
-      refresh();
-      navigate(-1);
-    },
-  });
+  const [removing, setRemoving] = useState(false);
+  const removed = () => {
+    setRemoving(false);
+    refresh();
+    navigate(-1);
+  };
 
   useAmbient(q.data?.poster);
   const sourceId = q.data ? (q.data.type === 'anime' ? q.data.anilist_id : q.data.tmdb_id) : null;
@@ -401,7 +401,7 @@ export default function Detail() {
             <Icon name="refresh" size={15} /> Refresh info
           </button>
           {isAdmin && (
-            <button className="btn small ghost danger" onClick={() => confirm(`Remove ${m.title} from Mediarr? Files on disk are kept.`) && remove.mutate()}>
+            <button className="btn small ghost danger" onClick={() => setRemoving(true)}>
               <Icon name="trash" size={15} /> Remove
             </button>
           )}
@@ -526,6 +526,7 @@ export default function Detail() {
       )}
 
       {releases && <ReleasesDialog scope={releases} onClose={() => setReleases(null)} />}
+      {removing && <RemoveDialog id={m.id} title={m.title} onClose={() => setRemoving(false)} onRemoved={removed} />}
       {trailer && info.data?.trailer && (
         <TrailerPlayer youtubeId={info.data.trailer.youtubeId} title={`${m.title} – ${info.data.trailer.title}`} onClose={() => setTrailer(false)} />
       )}
