@@ -175,7 +175,6 @@ export interface Settings {
   maxTranscodes: number;
   introDetection: boolean;
   trickplay: boolean;
-  updateRepo: string;
   autoCheckUpdates: boolean;
 }
 

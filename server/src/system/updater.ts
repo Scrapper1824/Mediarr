@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getSettings } from '../settings.js';
 
+/** Where updates come from: this public repository's published releases. */
+export const REPO = 'Scrapper1824/Mediarr';
+const REPO_URL = `https://github.com/${REPO}.git`;
+
 /** The Mediarr folder (a Git working copy of the GitHub repo). */
 export const ROOT = path.resolve(import.meta.dirname, '../../..');
 /** The tray restarts Mediarr straight away when it exits with this code. */
@@ -68,18 +72,12 @@ export function currentVersion(root = ROOT): string {
   return (JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { version: string }).version;
 }
 
-/** "owner/repo" from a GitHub URL (https or ssh), or null. */
-export function repoFromUrl(url: string): string | null {
-  const m = /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(url.trim());
-  return m ? `${m[1]}/${m[2]}` : null;
-}
-
 // ---- State ----
 
 export type Step = 'downloading' | 'installing' | 'building' | 'restarting';
 export interface UpdateInfo {
   current: string;
-  repo: string | null;
+  repo: string;
   latest: { version: string; name: string; notes: string; url: string; publishedAt: string } | null;
   available: boolean;
   checkedAt: string | null;
@@ -111,7 +109,7 @@ export function useUpdaterDeps(d: Partial<UpdaterDeps>) {
 
 let info: UpdateInfo = {
   current: '0.0.0',
-  repo: null,
+  repo: REPO,
   latest: null,
   available: false,
   checkedAt: null,
@@ -121,7 +119,7 @@ let info: UpdateInfo = {
 
 /** Back to "never checked" (tests). */
 export function resetUpdater() {
-  info = { current: '0.0.0', repo: null, latest: null, available: false, checkedAt: null, error: null, job: { state: 'idle', error: null, log: [], target: null } };
+  info = { current: '0.0.0', repo: REPO, latest: null, available: false, checkedAt: null, error: null, job: { state: 'idle', error: null, log: [], target: null } };
 }
 
 export function updateInfo(): UpdateInfo {
@@ -132,42 +130,24 @@ export function updateInfo(): UpdateInfo {
 
 const git = (args: string[], input?: string) => deps.run('git', args, { env: NON_INTERACTIVE, input, timeoutMs: 120_000 });
 
-async function repoSlug(): Promise<string | null> {
-  const configured = getSettings().updateRepo.trim();
-  if (configured) return repoFromUrl(configured) ?? (/^[\w.-]+\/[\w.-]+$/.test(configured) ? configured : null);
-  const r = await git(['remote', 'get-url', 'origin']);
-  return r.code === 0 ? repoFromUrl(r.stdout) : null;
-}
-
-/** The GitHub token Git already uses (from the GitHub CLI or Git Credential Manager); never stored by Mediarr. */
-async function githubToken(): Promise<string | null> {
-  const r = await git(['credential', 'fill'], 'protocol=https\nhost=github.com\n\n');
-  if (r.code !== 0) return null;
-  return /^password=(.+)$/m.exec(r.stdout)?.[1]?.trim() ?? null;
-}
-
-/** Asks GitHub for the latest published release (drafts and pre-releases never count). */
+/** Asks GitHub for the latest published release (drafts and pre-releases never count). No sign-in: the repository is public. */
 export async function checkForUpdate(): Promise<UpdateInfo> {
   info.checkedAt = new Date().toISOString();
   info.error = null;
   try {
-    const repo = await repoSlug();
-    info.repo = repo;
-    if (!repo) throw new Error('This copy of Mediarr isn’t linked to a GitHub repository (set one in Settings → System → Updates).');
-    const token = await githubToken();
-    const res = await deps.fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+    const res = await deps.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
       headers: {
         accept: 'application/vnd.github+json',
         'user-agent': 'mediarr-updater',
         'x-github-api-version': '2022-11-28',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       signal: AbortSignal.timeout(20_000),
     });
     if (res.status === 404) {
       info.latest = null;
-      throw new Error(token ? 'No releases published yet.' : 'GitHub couldn’t be reached as you: sign in with “gh auth login” and “gh auth setup-git”.');
+      throw new Error('No releases published yet.');
     }
+    if (res.status === 403 || res.status === 429) throw new Error('GitHub is limiting how often this network can check. Try again in an hour.');
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     const r = (await res.json()) as { tag_name: string; name: string | null; body: string | null; html_url: string; published_at: string; draft: boolean; prerelease: boolean };
     if (r.draft || r.prerelease || !parseVersion(r.tag_name)) {
@@ -232,7 +212,7 @@ async function installUpdate(target: string): Promise<void> {
     if (dirty.stdout.trim()) throw new Error('This copy has local changes to Mediarr’s files, so it won’t be overwritten. Commit or discard them first.');
     previous = (await step('Reading the current version', 'git', ['rev-parse', 'HEAD'])).stdout.trim();
 
-    await step('Downloading', 'git', ['fetch', '--tags', '--force', 'origin']);
+    await step('Downloading', 'git', ['fetch', '--tags', '--force', REPO_URL]);
     await step('Updating the files', 'git', ['merge', '--ff-only', target]).catch((err: Error) => {
       throw new Error(/not possible to fast-forward|diverg/i.test(err.message) ? 'This copy has its own changes that aren’t in the release, so it can’t be updated automatically.' : err.message);
     });

@@ -3,14 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from '../db.js';
-import { saveSettings } from '../settings.js';
-import { beginInstall, checkForUpdate, compareVersions, parseVersion, repoFromUrl, resetUpdater, updateInfo, useUpdaterDeps, type Runner } from './updater.js';
+import { beginInstall, checkForUpdate, compareVersions, parseVersion, REPO, resetUpdater, updateInfo, useUpdaterDeps, type Runner } from './updater.js';
 
 let root: string;
 let calls: { file: string; args: string[]; input?: string }[];
 let restarted: number;
 let release: Record<string, unknown> | null;
 let lastAuth: string | null;
+let lastUrl: string | null;
 /** Per-command overrides: "git merge" → failure, "npm build" → failure, "git status" → output. */
 let behaviour: Record<string, { code?: number; stdout?: string; stderr?: string }>;
 
@@ -24,8 +24,6 @@ const fakeRun: Runner = async (file, args, opts) => {
   calls.push({ file, args, input: opts?.input });
   const k = key(file, args);
   const defaults: Record<string, { stdout: string }> = {
-    'git remote': { stdout: 'https://github.com/Scrapper1824/Mediarr.git\n' },
-    'git credential': { stdout: 'protocol=https\nhost=github.com\nusername=x\npassword=gho_test_token\n' },
     'git status': { stdout: '' },
     'git rev-parse': { stdout: 'abc1234\n' },
   };
@@ -50,13 +48,15 @@ beforeEach(() => {
   restarted = 0;
   behaviour = {};
   lastAuth = null;
+  lastUrl = null;
   release = { tag_name: 'v0.2.0', name: 'Mediarr v0.2.0', body: '* Skip intro\n* Seek previews', html_url: 'https://github.com/x/y/releases/v0.2.0', published_at: '2026-11-10T00:00:00Z', draft: false, prerelease: false };
   useUpdaterDeps({
     root,
     run: fakeRun,
     restart: () => restarted++,
     logFile: null,
-    fetch: (async (_url: string, init?: RequestInit) => {
+    fetch: (async (url: string, init?: RequestInit) => {
+      lastUrl = url;
       lastAuth = (init?.headers as Record<string, string>)?.authorization ?? null;
       return release ? new Response(JSON.stringify(release), { status: 200 }) : new Response('{}', { status: 404 });
     }) as typeof fetch,
@@ -76,21 +76,16 @@ describe('versions', () => {
     expect(compareVersions('1.0.0', '1.0.1')).toBeLessThan(0);
     expect(parseVersion('v2.0.0-beta.1')).toBeNull();
   });
-
-  it('finds the repo from https and ssh remotes', () => {
-    expect(repoFromUrl('https://github.com/Scrapper1824/Mediarr.git')).toBe('Scrapper1824/Mediarr');
-    expect(repoFromUrl('git@github.com:Scrapper1824/Mediarr.git')).toBe('Scrapper1824/Mediarr');
-    expect(repoFromUrl('https://gitlab.com/a/b')).toBeNull();
-  });
 });
 
 describe('checking for updates', () => {
-  it('offers a newer release, using the token Git already has', async () => {
+  it('offers a newer release from the public repository, without any sign-in', async () => {
     const info = await checkForUpdate();
     expect(info).toMatchObject({ current: '0.1.0', repo: 'Scrapper1824/Mediarr', available: true, error: null, latest: { version: '0.2.0' } });
-    expect(lastAuth).toBe('Bearer gho_test_token');
-    // Asked non-interactively, never with a prompt.
-    expect(calls.find((c) => c.args[0] === 'credential')!.input).toContain('host=github.com');
+    expect(lastUrl).toBe('https://api.github.com/repos/Scrapper1824/Mediarr/releases/latest');
+    // Your GitHub sign-in is never read or sent.
+    expect(lastAuth).toBeNull();
+    expect(calls.some((c) => c.args[0] === 'credential' || c.args[0] === 'remote')).toBe(false);
   });
 
   it('is up to date when the release is not newer, and ignores drafts and pre-releases', async () => {
@@ -100,13 +95,10 @@ describe('checking for updates', () => {
     expect((await checkForUpdate()).available).toBe(false);
   });
 
-  it('explains when there are no releases or no repo', async () => {
+  it('explains when there are no releases', async () => {
     release = null;
     expect((await checkForUpdate()).error).toMatch(/No releases/);
-    behaviour['git remote'] = { code: 1 };
-    expect((await checkForUpdate()).error).toMatch(/isn’t linked/);
-    saveSettings({ updateRepo: 'someone/fork' });
-    expect((await checkForUpdate()).repo).toBe('someone/fork');
+    expect(REPO).toBe('Scrapper1824/Mediarr');
   });
 });
 
@@ -117,6 +109,8 @@ describe('installing an update', () => {
     await settle();
     expect(updateInfo().job.state).toBe('restarting');
     expect(calls.find((c) => c.args[0] === 'merge')!.args).toEqual(['merge', '--ff-only', 'v0.2.0']);
+    // Downloaded from the public repository itself, whatever this copy's own remote is.
+    expect(calls.find((c) => c.args[0] === 'fetch')!.args).toContain('https://github.com/Scrapper1824/Mediarr.git');
     expect(ranBefore('git fetch', 'git merge')).toBe(true);
     expect(ranBefore('git merge', 'npm ci')).toBe(true);
     expect(ranBefore('npm ci', 'npm build')).toBe(true);

@@ -40,8 +40,7 @@ export interface Settings {
   introDetection: boolean;
   /** Thumbnail previews on the seek bar. */
   trickplay: boolean;
-  /** Updates: "owner/repo" on GitHub (empty = this folder's Git remote), and whether to look for new releases. */
-  updateRepo: string;
+  /** Updates (from the Scrapper1824/Mediarr releases): whether to look for new ones every 6 hours. */
   autoCheckUpdates: boolean;
 }
 
@@ -76,7 +75,6 @@ export const DEFAULT_SETTINGS: Settings = {
   maxTranscodes: 3,
   introDetection: true,
   trickplay: true,
-  updateRepo: '',
   autoCheckUpdates: true,
 };
 

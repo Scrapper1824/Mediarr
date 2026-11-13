@@ -536,9 +536,13 @@ function UpdatesPanel({ form, setForm }: { form: Settings; setForm: (s: Settings
         <input type="checkbox" checked={form.autoCheckUpdates} onChange={(e) => setForm({ ...form, autoCheckUpdates: e.target.checked })} />
         <span>Check for new releases automatically (every 6 hours)</span>
       </label>
-      <Field label="GitHub repository (optional)" hint={`Leave empty to use the one this folder was cloned from${d?.repo ? ` (${d.repo})` : ''}. Only published releases count as updates.`}>
-        <input className="input" value={form.updateRepo} placeholder="owner/repo" spellCheck={false} onChange={(e) => setForm({ ...form, updateRepo: e.target.value })} />
-      </Field>
+      <p className="muted small">
+        Updates come from the published releases of{' '}
+        <a href={`https://github.com/${d?.repo ?? 'Scrapper1824/Mediarr'}/releases`} target="_blank" rel="noreferrer noopener">
+          {d?.repo ?? 'Scrapper1824/Mediarr'}
+        </a>{' '}
+        on GitHub.
+      </p>
       {open && <UpdateDialog onClose={() => setOpen(false)} />}
     </section>
   );

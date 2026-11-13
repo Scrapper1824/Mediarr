@@ -15,13 +15,11 @@
 
 ## Install
 
-Needs **Node.js 22.13+**, **Git**, and the **GitHub CLI** (this repository is private), plus **FFmpeg** for watching.
+Needs **Node.js 22.13+** and **Git**, plus **FFmpeg** for watching.
 
 ```bash
-winget install OpenJS.NodeJS.LTS Git.Git GitHub.cli Gyan.FFmpeg
-gh auth login
-gh auth setup-git
-gh repo clone Scrapper1824/Mediarr
+winget install OpenJS.NodeJS.LTS Git.Git Gyan.FFmpeg
+git clone https://github.com/Scrapper1824/Mediarr.git
 cd Mediarr
 npm install
 npm run build
@@ -29,8 +27,6 @@ npm start
 ```
 
 Then open **http://localhost:7979**. The first time, the tray shows a **setup code** (also in `data\setup-code.txt`): you need it to create the first (admin) account.
-
-`gh auth setup-git` lets Git (and Mediarr's update checks) use your GitHub sign-in without ever asking for a password.
 
 ### Running it
 
