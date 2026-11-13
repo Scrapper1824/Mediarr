@@ -9,9 +9,20 @@ interface UserSummary {
   username: string;
   role: 'admin' | 'user';
   needsApproval: boolean;
+  allowAdult: boolean;
   totpEnabled: boolean;
   sessions: number;
   createdAt: string;
+}
+
+function Switch({ checked, disabled, onChange, label, title }: { checked: boolean; disabled: boolean; onChange: (v: boolean) => void; label: string; title: string }) {
+  return (
+    <label className="switch" title={title}>
+      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <span className="switch-track" aria-hidden />
+      <span className="small">{label}</span>
+    </label>
+  );
 }
 
 function AddUser() {
@@ -20,13 +31,15 @@ function AddUser() {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'user' | 'admin'>('user');
   const [approval, setApproval] = useState(false);
+  const [adult, setAdult] = useState(false);
   const add = useMutation({
-    mutationFn: () => api.post('/api/users', { username, password, role, needsApproval: role === 'user' && approval }),
+    mutationFn: () => api.post('/api/users', { username, password, role, needsApproval: role === 'user' && approval, allowAdult: adult }),
     onSuccess: () => {
       setUsername('');
       setPassword('');
       setRole('user');
       setApproval(false);
+      setAdult(false);
       qc.invalidateQueries({ queryKey: ['users'] });
     },
   });
@@ -47,12 +60,18 @@ function AddUser() {
       <button className="btn primary" disabled={add.isPending}>
         {add.isPending && <Spinner />} Add user
       </button>
-      {role === 'user' && (
-        <label className="check full-row">
-          <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)} />
-          <span>Their requests need an admin’s approval</span>
+      <div className="full-row add-user-options">
+        {role === 'user' && (
+          <label className="check">
+            <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)} />
+            <span>Their requests need an admin’s approval</span>
+          </label>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={adult} onChange={(e) => setAdult(e.target.checked)} />
+          <span>Allow 18+ content</span>
         </label>
-      )}
+      </div>
       {add.error && <div className="error-box full-row">{(add.error as Error).message}</div>}
       {add.isSuccess && <span className="ok-text small full-row">User added. Share the password with them; they can change it under Account.</span>}
     </form>
@@ -63,9 +82,18 @@ function UserRow({ u, isMe }: { u: UserSummary; isMe: boolean }) {
   const qc = useQueryClient();
   const [resetting, setResetting] = useState(false);
   const [password, setPassword] = useState('');
-  const refresh = () => qc.invalidateQueries({ queryKey: ['users'] });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['users'] });
+    // Your own 18+ switch changes what Discover and the library show you.
+    if (isMe) {
+      qc.invalidateQueries({ queryKey: ['auth'] });
+      qc.invalidateQueries({ queryKey: ['discover'] });
+      qc.invalidateQueries({ queryKey: ['media'] });
+      qc.invalidateQueries({ queryKey: ['home'] });
+    }
+  };
   const update = useMutation({
-    mutationFn: (body: { role?: string; password?: string; needsApproval?: boolean }) => api.patch(`/api/users/${u.id}`, body),
+    mutationFn: (body: { role?: string; password?: string; needsApproval?: boolean; allowAdult?: boolean }) => api.patch(`/api/users/${u.id}`, body),
     onSuccess: () => {
       setResetting(false);
       setPassword('');
@@ -76,85 +104,94 @@ function UserRow({ u, isMe }: { u: UserSummary; isMe: boolean }) {
   const error = (update.error || remove.error) as Error | null;
 
   return (
-    <>
-      <tr>
-        <td>
+    <li className="user-row">
+      <div className="user-who">
+        <div>
           <strong>{u.username}</strong> {isMe && <span className="muted small">(you)</span>}
-        </td>
-        <td>
-          <select
-            className="input small-input"
-            value={u.role}
-            disabled={isMe || update.isPending}
-            title={isMe ? 'You can’t change your own role' : 'Role'}
-            onChange={(e) => update.mutate({ role: e.target.value })}
-          >
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-        </td>
-        <td>
-          {u.role === 'user' ? (
-            <label className="switch" title="When on, what they request waits for an admin to approve it">
-              <input type="checkbox" role="switch" checked={u.needsApproval} disabled={update.isPending} onChange={(e) => update.mutate({ needsApproval: e.target.checked })} />
-              <span className="switch-track" aria-hidden />
-              <span className="small">Needs approval</span>
-            </label>
-          ) : null}
-        </td>
-        <td>{u.totpEnabled ? <span className="badge ok">2FA on</span> : <span className="badge muted">2FA off</span>}</td>
-        <td className="muted small nowrap">{u.sessions} session(s)</td>
-        <td className="muted small nowrap">Added {formatDate(u.createdAt)}</td>
-        <td className="nowrap actions">
-          {!isMe && (
-            <>
-              <button className="btn small ghost" onClick={() => setResetting((r) => !r)}>
-                Reset password
-              </button>
-              <button
-                className="btn small ghost danger"
-                disabled={remove.isPending}
-                onClick={() => confirm(`Remove ${u.username}? They’ll be signed out immediately.`) && remove.mutate()}
-              >
-                Remove
-              </button>
-            </>
-          )}
-        </td>
-      </tr>
+        </div>
+        <div className="muted small user-meta">
+          {u.totpEnabled ? <span className="badge ok">2FA on</span> : <span className="badge muted">2FA off</span>}
+          <span>
+            {u.sessions} session{u.sessions === 1 ? '' : 's'} · Added {formatDate(u.createdAt)}
+          </span>
+        </div>
+      </div>
+      <select
+        className="input small-input user-role"
+        value={u.role}
+        disabled={isMe || update.isPending}
+        title={isMe ? 'You can’t change your own role' : 'Role'}
+        aria-label={`Role of ${u.username}`}
+        onChange={(e) => update.mutate({ role: e.target.value })}
+      >
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+      <div className="user-switches">
+        {u.role === 'user' && (
+          <Switch
+            checked={u.needsApproval}
+            disabled={update.isPending}
+            onChange={(v) => update.mutate({ needsApproval: v })}
+            label="Needs approval"
+            title="When on, what they request waits for an admin to approve it"
+          />
+        )}
+        <Switch
+          checked={u.allowAdult}
+          disabled={update.isPending}
+          onChange={(v) => update.mutate({ allowAdult: v })}
+          label="18+ content"
+          title="When on, they see 18+ titles, genres and tags in Discover and in the library"
+        />
+      </div>
+      <div className="user-actions">
+        {!isMe && (
+          <>
+            <button className="btn small ghost" onClick={() => setResetting((r) => !r)}>
+              Reset password
+            </button>
+            <button
+              className="btn small ghost danger"
+              disabled={remove.isPending}
+              onClick={() => confirm(`Remove ${u.username}? They’ll be signed out immediately.`) && remove.mutate()}
+            >
+              Remove
+            </button>
+          </>
+        )}
+      </div>
       {(resetting || error) && (
-        <tr className="sub-row">
-          <td colSpan={7}>
-            {resetting && (
-              <form
-                className="row wrap"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  update.mutate({ password });
-                }}
-              >
-                <input
-                  className="input grow"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={`New password for ${u.username} (12+ characters)`}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={12}
-                  autoFocus
-                />
-                <button className="btn small primary" disabled={update.isPending}>
-                  Set password
-                </button>
-                <span className="muted small">They’ll be signed out everywhere.</span>
-              </form>
-            )}
-            {error && <div className="error-box">{error.message}</div>}
-          </td>
-        </tr>
+        <div className="user-sub">
+          {resetting && (
+            <form
+              className="row wrap"
+              onSubmit={(e) => {
+                e.preventDefault();
+                update.mutate({ password });
+              }}
+            >
+              <input
+                className="input grow"
+                type="password"
+                autoComplete="new-password"
+                placeholder={`New password for ${u.username} (12+ characters)`}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={12}
+                autoFocus
+              />
+              <button className="btn small primary" disabled={update.isPending}>
+                Set password
+              </button>
+              <span className="muted small">They’ll be signed out everywhere.</span>
+            </form>
+          )}
+          {error && <div className="error-box">{error.message}</div>}
+        </div>
       )}
-    </>
+    </li>
   );
 }
 
@@ -167,19 +204,16 @@ export default function UsersPanel() {
       <p className="muted small">
         <strong>Admins</strong> can do everything. <strong>Users</strong> can browse, request and search, but can’t change settings,
         manage users, remove items from the library or cancel downloads. Turn on <strong>Needs approval</strong> for a user and
-        what they request waits on the Requests page until an admin approves it.
+        what they request waits on the Requests page until an admin approves it. <strong>18+ content</strong> (off for everyone
+        until you turn it on) shows them adult titles, genres and tags in Discover and in the library.
       </p>
       {users.isLoading && <div className="loading">Loading…</div>}
       {users.data && (
-        <div className="table-wrap">
-          <table className="table">
-            <tbody>
-              {users.data.map((u) => (
-                <UserRow key={u.id} u={u} isMe={u.id === auth.data?.user?.id} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="user-list">
+          {users.data.map((u) => (
+            <UserRow key={u.id} u={u} isMe={u.id === auth.data?.user?.id} />
+          ))}
+        </ul>
       )}
       <h3>Add a user</h3>
       <AddUser />

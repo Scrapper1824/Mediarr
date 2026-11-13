@@ -98,8 +98,28 @@ const CAP_KEYS: (keyof ClientCaps)[] = ['mp4', 'webm', 'h264', 'hevc', 'av1', 'v
 const parseCaps = (raw: unknown): ClientCaps =>
   Object.fromEntries(CAP_KEYS.map((k) => [k, !!(raw as Record<string, unknown> | undefined)?.[k]])) as unknown as ClientCaps;
 
+/** The library title a playback route is about (an episode belongs to its title), if any. */
+function mediaForRoute(route: string, params: Record<string, string | undefined>): MediaRow | undefined {
+  if (route.startsWith('/api/play/:kind/:id')) {
+    const id = Number(params.id);
+    if (params.kind === 'movie') return getMedia(id);
+    const ep = db.prepare('SELECT media_id FROM episodes WHERE id = ?').get(id) as { media_id: number } | undefined;
+    return ep ? getMedia(ep.media_id) : undefined;
+  }
+  if (route.startsWith('/api/play/progress/:mediaId')) return getMedia(Number(params.mediaId));
+  if (route.startsWith('/api/media/:id')) return getMedia(Number(params.id));
+  return undefined;
+}
+
 /** Watching: every signed-in user can play titles that are in the library. */
 export async function playRoutes(app: FastifyInstance) {
+  // 18+ titles can only be played by users allowed to see them.
+  app.addHook('preHandler', async (req, reply) => {
+    if (!req.user || req.user.allow_adult) return;
+    const m = mediaForRoute(req.routeOptions.url ?? '', req.params as Record<string, string | undefined>);
+    if (m?.adult) return reply.code(404).send({ error: 'Nothing to play here yet' });
+  });
+
   app.get<{ Params: { kind: string; id: string } }>('/api/play/:kind/:id/info', async (req) => {
     const p = playable(req.params.kind, req.params.id);
     requireFfmpeg();
@@ -313,8 +333,8 @@ export async function playRoutes(app: FastifyInstance) {
   });
 
   /** Continue Watching (started, not finished) and Next Up (the episode after the last one finished). */
-  app.get('/api/continue', async (req) => continueWatching(req.user!.id));
+  app.get('/api/continue', async (req) => continueWatching(req.user!.id, 20, !!req.user!.allow_adult));
 
   /** The Home page: banner, continue watching, recently added, and what is downloaded per type (your own progress only). */
-  app.get('/api/home', async (req) => homeFor(req.user!.id));
+  app.get('/api/home', async (req) => homeFor(req.user!.id, !!req.user!.allow_adult));
 }

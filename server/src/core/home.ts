@@ -89,12 +89,12 @@ function toTitle(m: MediaRow & { last_added?: string; episode_files?: number }):
 }
 
 /** Titles with something downloaded, newest first. */
-export function downloadedTitles(opts: { type?: MediaType; limit: number }): HomeTitle[] {
+export function downloadedTitles(opts: { type?: MediaType; limit: number; adult?: boolean }): HomeTitle[] {
   const rows = db
     .prepare(
       `SELECT m.*, ${LAST_ADDED} AS last_added,
          (SELECT COUNT(*) FROM episodes e WHERE e.media_id = m.id AND e.has_file = 1 AND e.season > 0) AS episode_files
-       FROM media m WHERE ${HAS_FILES} ${opts.type ? 'AND m.type = ?' : ''}
+       FROM media m WHERE ${HAS_FILES} ${opts.type ? 'AND m.type = ?' : ''} ${opts.adult ? '' : 'AND m.adult = 0'}
        ORDER BY last_added DESC, m.id DESC LIMIT ?`,
     )
     .all(...(opts.type ? [opts.type, opts.limit] : [opts.limit])) as unknown as (MediaRow & { last_added: string; episode_files: number })[];
@@ -107,7 +107,7 @@ const titleOf = (media: MediaRow): HomeTitle => toTitle(media);
  * Continue watching (started, not finished) and up next (the episode after the last one you finished),
  * one entry per title, most recently watched first.
  */
-export function continueWatching(userId: number, limit = 20): ContinueItem[] {
+export function continueWatching(userId: number, limit = 20, adult = false): ContinueItem[] {
   const rows = db
     .prepare('SELECT media_id, episode_id, position, duration, watched, updated_at FROM watch_progress WHERE user_id = ? ORDER BY updated_at DESC LIMIT 300')
     .all(userId) as unknown as ProgressRow[];
@@ -116,7 +116,7 @@ export function continueWatching(userId: number, limit = 20): ContinueItem[] {
   for (const r of rows) {
     if (seen.has(r.media_id)) continue;
     const media = getMedia(r.media_id);
-    if (!media) continue;
+    if (!media || (media.adult && !adult)) continue;
     seen.add(r.media_id);
     const base = titleOf(media);
     if (!r.watched && r.position > 30) {
@@ -188,9 +188,9 @@ export interface HomeData {
   libraries: Record<MediaType, PlayableTitle[]>;
 }
 
-export function homeFor(userId: number): HomeData {
-  const cont = continueWatching(userId);
-  const recent = downloadedTitles({ limit: 20 });
+export function homeFor(userId: number, adult = false): HomeData {
+  const cont = continueWatching(userId, 20, adult);
+  const recent = downloadedTitles({ limit: 20, adult });
   // The banner: what you're in the middle of, then what's new, one per title, ones with a backdrop preferred.
   const featured: FeaturedItem[] = [];
   const used = new Set<number>();
@@ -220,9 +220,9 @@ export function homeFor(userId: number): HomeData {
     continue: cont,
     recent: playable(recent),
     libraries: {
-      movie: playable(downloadedTitles({ type: 'movie', limit: 30 })),
-      show: playable(downloadedTitles({ type: 'show', limit: 30 })),
-      anime: playable(downloadedTitles({ type: 'anime', limit: 30 })),
+      movie: playable(downloadedTitles({ type: 'movie', limit: 30, adult })),
+      show: playable(downloadedTitles({ type: 'show', limit: 30, adult })),
+      anime: playable(downloadedTitles({ type: 'anime', limit: 30, adult })),
     },
   };
 }

@@ -14,6 +14,7 @@ function summary(u: UserRow) {
     username: u.username,
     role: u.role,
     needsApproval: !!u.needs_approval,
+    allowAdult: !!u.allow_adult,
     totpEnabled: !!u.totp_enabled,
     sessions: countSessions(u.id),
     createdAt: u.created_at,
@@ -26,7 +27,7 @@ export async function userRoutes(app: FastifyInstance) {
     (db.prepare('SELECT * FROM users ORDER BY role, username COLLATE NOCASE').all() as unknown as UserRow[]).map(summary),
   );
 
-  app.post<{ Body: { username?: string; password?: string; role?: Role; needsApproval?: boolean } }>('/api/users', async (req, reply) => {
+  app.post<{ Body: { username?: string; password?: string; role?: Role; needsApproval?: boolean; allowAdult?: boolean } }>('/api/users', async (req, reply) => {
     const username = String(req.body?.username ?? '').trim();
     const role = req.body?.role ?? 'user';
     if (!USERNAME.test(username)) return reply.code(400).send({ error: 'Username must be 3–32 letters, numbers, dots, dashes or underscores.' });
@@ -35,13 +36,13 @@ export async function userRoutes(app: FastifyInstance) {
     const problem = passwordProblem(req.body?.password, username);
     if (problem) return reply.code(400).send({ error: problem });
     const r = db
-      .prepare('INSERT INTO users (username, password_hash, role, needs_approval, created_at, password_changed_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(username, await hashPassword(req.body!.password!), role, req.body?.needsApproval ? 1 : 0, now(), now());
+      .prepare('INSERT INTO users (username, password_hash, role, needs_approval, allow_adult, created_at, password_changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(username, await hashPassword(req.body!.password!), role, req.body?.needsApproval ? 1 : 0, req.body?.allowAdult ? 1 : 0, now(), now());
     logHistory(null, 'users', `${req.user!.username} added ${role === 'admin' ? 'admin' : 'user'} "${username}"`);
     return summary(getUser(Number(r.lastInsertRowid))!);
   });
 
-  app.patch<{ Params: { id: string }; Body: { role?: Role; password?: string; needsApproval?: boolean } }>('/api/users/:id', async (req, reply) => {
+  app.patch<{ Params: { id: string }; Body: { role?: Role; password?: string; needsApproval?: boolean; allowAdult?: boolean } }>('/api/users/:id', async (req, reply) => {
     const target = getUser(Number(req.params.id));
     if (!target) return reply.code(404).send({ error: 'User not found.' });
 
@@ -56,6 +57,11 @@ export async function userRoutes(app: FastifyInstance) {
     if (req.body?.needsApproval !== undefined && !!req.body.needsApproval !== !!target.needs_approval) {
       db.prepare('UPDATE users SET needs_approval = ? WHERE id = ?').run(req.body.needsApproval ? 1 : 0, target.id);
       logHistory(null, 'users', `${req.user!.username} ${req.body.needsApproval ? 'now approves' : 'no longer approves'} requests from "${target.username}"`);
+    }
+
+    if (req.body?.allowAdult !== undefined && !!req.body.allowAdult !== !!target.allow_adult) {
+      db.prepare('UPDATE users SET allow_adult = ? WHERE id = ?').run(req.body.allowAdult ? 1 : 0, target.id);
+      logHistory(null, 'users', `${req.user!.username} ${req.body.allowAdult ? 'allowed' : 'turned off'} 18+ content for "${target.username}"`);
     }
 
     if (req.body?.password !== undefined) {

@@ -15,6 +15,8 @@ export interface UserRow {
   role: Role;
   /** Regular users only: what they request waits for an admin's approval. */
   needs_approval: number;
+  /** May see 18+ titles (admins decide, per user; off by default). */
+  allow_adult: number;
   password_hash: string;
   totp_secret: string | null;
   totp_enabled: number;

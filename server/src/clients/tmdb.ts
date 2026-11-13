@@ -37,6 +37,7 @@ export interface TmdbShowDetails {
   backdrop: string | null;
   overview: string;
   status: string;
+  adult?: boolean;
   seasons: { season: number; name: string; episodeCount: number; airDate: string | null }[];
 }
 
@@ -137,13 +138,13 @@ export async function withEpisodeCounts(items: SearchResult[]): Promise<SearchRe
   });
 }
 
-export async function searchMovies(query: string): Promise<SearchResult[]> {
-  const r = await tmdb<{ results: any[] }>('/search/movie', { query, include_adult: 'false' });
+export async function searchMovies(query: string, adult = false): Promise<SearchResult[]> {
+  const r = await tmdb<{ results: any[] }>('/search/movie', { query, include_adult: String(adult) });
   return r.results.map(toMovie);
 }
 
-export async function searchShows(query: string): Promise<SearchResult[]> {
-  const r = await tmdb<{ results: any[] }>('/search/tv', { query, include_adult: 'false' });
+export async function searchShows(query: string, adult = false): Promise<SearchResult[]> {
+  const r = await tmdb<{ results: any[] }>('/search/tv', { query, include_adult: String(adult) });
   return r.results.map(toShow);
 }
 
@@ -172,7 +173,7 @@ const SHOW_ROWS: [string, string, string][] = [
 const ROW_SIZE = 20;
 
 /** Curated lists for the Discover page when you're not searching. */
-export async function browseTmdb(type: 'movie' | 'show'): Promise<BrowseRow[]> {
+export async function browseTmdb(type: 'movie' | 'show', adult = false): Promise<BrowseRow[]> {
   const rows = type === 'movie' ? MOVIE_ROWS : SHOW_ROWS;
   const map = type === 'movie' ? toMovie : toShow;
   return Promise.all(
@@ -180,12 +181,12 @@ export async function browseTmdb(type: 'movie' | 'show'): Promise<BrowseRow[]> {
       // Anime is dropped (it has its own tab), so take two pages to still fill the row.
       const pages = ['1', '2'];
       const results = (
-        await Promise.all(pages.map((page) => tmdb<{ results: any[] }>(path, { include_adult: 'false', page })))
+        await Promise.all(pages.map((page) => tmdb<{ results: any[] }>(path, { include_adult: String(adult), page })))
       ).flatMap((r) => r.results);
       const seen = new Set<number>();
       const items = results
         // Entries without a poster are usually obscure or broken; they make a poor browse row.
-        .filter((x) => x.poster_path && !x.adult && !isAnimeTitle(x) && !seen.has(x.id) && seen.add(x.id))
+        .filter((x) => x.poster_path && (adult || !x.adult) && !isAnimeTitle(x) && !seen.has(x.id) && seen.add(x.id))
         .slice(0, ROW_SIZE)
         .map(map);
       return { id, title, items: type === 'show' ? await withEpisodeCounts(items) : items };
@@ -205,6 +206,7 @@ export async function getMovie(id: number) {
     backdrop: backdrop(m.backdrop_path),
     overview: (m.overview as string) ?? '',
     status: m.status as string,
+    adult: !!m.adult,
   };
 }
 
@@ -219,6 +221,7 @@ export async function getShow(id: number): Promise<TmdbShowDetails> {
     backdrop: backdrop(s.backdrop_path),
     overview: s.overview ?? '',
     status: s.status,
+    adult: !!s.adult,
     seasons: (s.seasons ?? []).map((x: any) => ({
       season: x.season_number,
       name: x.name,
@@ -277,10 +280,10 @@ function runtime(minutes: number | null | undefined): string | null {
 }
 
 /** The top trending titles with backdrops, logos and details for the Discover banner. */
-export async function featuredTmdb(type: 'movie' | 'show'): Promise<FeaturedItem[]> {
+export async function featuredTmdb(type: 'movie' | 'show', adult = false): Promise<FeaturedItem[]> {
   const trending = await tmdb<{ results: any[] }>(type === 'movie' ? '/trending/movie/week' : '/trending/tv/week');
   const picks = trending.results
-    .filter((x) => x.backdrop_path && x.poster_path && !x.adult && !isAnimeTitle(x))
+    .filter((x) => x.backdrop_path && x.poster_path && (adult || !x.adult) && !isAnimeTitle(x))
     .slice(0, FEATURED_COUNT);
   const items = await Promise.all(
     picks.map(async (p): Promise<FeaturedItem | null> => {
@@ -413,12 +416,12 @@ export interface TmdbFilter {
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 /** The TMDB discover parameters for a filter (exported for tests). */
-export function tmdbFilterParams(type: 'movie' | 'show', f: TmdbFilter, page: number, now = new Date()): Record<string, string> {
+export function tmdbFilterParams(type: 'movie' | 'show', f: TmdbFilter, page: number, now = new Date(), adult = false): Record<string, string> {
   const movie = type === 'movie';
   const date = movie ? 'primary_release_date' : 'first_air_date';
   const today = isoDay(now);
   const tomorrow = isoDay(new Date(now.getTime() + 86400_000));
-  const p: Record<string, string> = { include_adult: 'false', page: String(page), language: 'en-US' };
+  const p: Record<string, string> = { include_adult: String(adult), page: String(page), language: 'en-US' };
   p.sort_by = {
     popular: 'popularity.desc',
     trending: 'popularity.desc',
@@ -456,10 +459,10 @@ export function tmdbFilterParams(type: 'movie' | 'show', f: TmdbFilter, page: nu
 }
 
 /** TMDB's discover endpoint with the Discover filters. Anime is left out (it has its own tab). */
-export async function filterTmdb(type: 'movie' | 'show', f: TmdbFilter, page: number): Promise<{ items: SearchResult[]; nextPage: number | null }> {
+export async function filterTmdb(type: 'movie' | 'show', f: TmdbFilter, page: number, adult = false): Promise<{ items: SearchResult[]; nextPage: number | null }> {
   const movie = type === 'movie';
-  const r = await tmdb<{ results: any[]; page: number; total_pages: number }>(`/discover/${movie ? 'movie' : 'tv'}`, tmdbFilterParams(type, f, page));
-  const items = r.results.filter((x) => x.poster_path && !x.adult && !isAnimeTitle(x)).map(movie ? toMovie : toShow);
+  const r = await tmdb<{ results: any[]; page: number; total_pages: number }>(`/discover/${movie ? 'movie' : 'tv'}`, tmdbFilterParams(type, f, page, new Date(), adult));
+  const items = r.results.filter((x) => x.poster_path && (adult || !x.adult) && !isAnimeTitle(x)).map(movie ? toMovie : toShow);
   return {
     items: movie ? items : await withEpisodeCounts(items),
     // TMDB serves at most 500 pages.

@@ -84,7 +84,12 @@ function titleKey(title: string, season?: number): string {
   return `${base}#${season ?? sq?.n ?? 1}`;
 }
 
-const SEARCH: Record<MediaType, (q: string) => Promise<SearchResult[]>> = { movie: searchMovies, show: searchShows, anime: searchAnime };
+// Identifying files already in your library folders: any title may match, 18+ included.
+const SEARCH: Record<MediaType, (q: string) => Promise<SearchResult[]>> = {
+  movie: (q) => searchMovies(q, true),
+  show: (q) => searchShows(q, true),
+  anime: (q) => searchAnime(q, true),
+};
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---- Linking files ----

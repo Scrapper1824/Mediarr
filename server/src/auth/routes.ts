@@ -43,7 +43,7 @@ function setupCodeMatches(code: unknown): boolean {
 }
 
 function publicUser(u: UserRow) {
-  return { id: u.id, username: u.username, role: u.role, needsApproval: u.role !== 'admin' && !!u.needs_approval, totpEnabled: !!u.totp_enabled, sessions: countSessions(u.id) };
+  return { id: u.id, username: u.username, role: u.role, needsApproval: u.role !== 'admin' && !!u.needs_approval, allowAdult: !!u.allow_adult, totpEnabled: !!u.totp_enabled, sessions: countSessions(u.id) };
 }
 
 function signIn(req: FastifyRequest, reply: FastifyReply, user: UserRow) {

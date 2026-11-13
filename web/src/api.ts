@@ -213,7 +213,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 export interface AuthStatus {
   setupRequired: boolean;
   authenticated: boolean;
-  user: { id: number; username: string; role: 'admin' | 'user'; needsApproval: boolean; totpEnabled: boolean; sessions: number } | null;
+  user: { id: number; username: string; role: 'admin' | 'user'; needsApproval: boolean; allowAdult: boolean; totpEnabled: boolean; sessions: number } | null;
 }
 
 export const api = {

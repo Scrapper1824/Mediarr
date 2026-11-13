@@ -1317,3 +1317,27 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 .row.center { justify-content: center; }
 .filter-theme-search { max-width: 480px; padding-top: 7px; padding-bottom: 7px; }
 .filter-sublabel { font-size: 11px; font-weight: 700; color: var(--faint); margin-top: 6px; }
+/* Users (Settings): one row per account that wraps on narrow screens instead of scrolling sideways. */
+.user-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; }
+.user-row {
+  display: grid; grid-template-columns: minmax(150px, 1.2fr) auto minmax(150px, 1fr) auto; gap: 10px 18px; align-items: center;
+  padding: 12px 0; border-top: 1px solid var(--line);
+}
+.user-row:last-child { border-bottom: 1px solid var(--line); }
+.user-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.user-switches { display: grid; gap: 6px; justify-items: start; }
+.user-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.user-sub { grid-column: 1 / -1; }
+.add-user-options { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.user-list { container-type: inline-size; }
+.user-role { min-width: 96px; width: auto; justify-self: end; }
+/* The panel is narrower than the window (Settings has its own menu): wrap by the panel's width. */
+@container (max-width: 640px) {
+  .user-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .user-switches { grid-column: 1; }
+  .user-actions { grid-column: 2; align-self: end; }
+}
+@container (max-width: 380px) {
+  .user-switches, .user-actions { grid-column: 1 / -1; }
+  .user-actions { justify-content: flex-start; }
+}

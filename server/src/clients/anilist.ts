@@ -16,6 +16,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 
 const FIELDS = `
   id
+  isAdult
   bannerImage
   title { romaji english native }
   synonyms
@@ -47,6 +48,7 @@ interface AnimeEntry {
   overview: string;
   status: string;
   format: string;
+  adult: boolean;
   episodes: { episode: number; airDate: string | null }[];
   prequels: Related[];
   sequels: Related[];
@@ -67,6 +69,8 @@ export interface AnimeSeries {
   backdrop: string | null;
   overview: string;
   status: string;
+  /** 18+ on AniList. */
+  adult: boolean;
   seasons: AnimeSeason[];
   episodes: { season: number; episode: number; absolute: number; airDate: string | null }[];
 }
@@ -87,9 +91,9 @@ function related(m: any, type: 'PREQUEL' | 'SEQUEL'): Related[] {
     .map((e: any) => ({ id: e.node.id as number, format: e.node.format as string }));
 }
 
-export async function searchAnime(search: string): Promise<SearchResult[]> {
+export async function searchAnime(search: string, adult = false): Promise<SearchResult[]> {
   const data = await gql<{ Page: { media: any[] } }>(
-    `query ($search: String) { Page(perPage: 25) { media(search: $search, type: ANIME, sort: SEARCH_MATCH) { ${FIELDS} } } }`,
+    `query ($search: String) { Page(perPage: 25) { media(search: $search, type: ANIME, sort: SEARCH_MATCH${adult ? '' : ', isAdult: false'}) { ${FIELDS} } } }`,
     { search },
   );
   const media = data.Page.media;
@@ -180,6 +184,7 @@ async function getEntry(id: number): Promise<AnimeEntry> {
     overview: stripHtml(m.description),
     status: m.status,
     format: m.format,
+    adult: !!m.isAdult,
     episodes,
     prequels: related(m, 'PREQUEL'),
     sequels: related(m, 'SEQUEL'),
@@ -280,6 +285,7 @@ export async function getAnimeSeries(id: number): Promise<AnimeSeries> {
     backdrop: chain.find((c) => c.banner)?.banner ?? null,
     overview: first.overview,
     status: last.status,
+    adult: chain.some((c) => c.adult),
     seasons,
     episodes,
   };
@@ -316,18 +322,19 @@ export function browseExtra(m: { format?: string | null; episodes?: number | nul
 }
 
 /** Curated lists for the Discover page: trending, this season, next season, popular, top rated. */
-export async function browseAnime(now = new Date()): Promise<BrowseRow[]> {
+export async function browseAnime(now = new Date(), adult = false): Promise<BrowseRow[]> {
+  const A = adult ? '' : 'isAdult: false, ';
   const cur = animeSeasonOf(now);
   const nextIdx = (SEASONS.indexOf(cur.season) + 1) % 4;
   const next = { season: SEASONS[nextIdx], year: nextIdx === 0 ? cur.year + 1 : cur.year };
   const BROWSE_FIELDS = `id title { romaji english } format episodes nextAiringEpisode { episode } seasonYear startDate { year } coverImage { large } description(asHtml: false)`;
   const data = await gql<Record<string, { media: any[] }>>(
     `query ($season: MediaSeason, $year: Int, $nextSeason: MediaSeason, $nextYear: Int) {
-      trending: Page(perPage: 20) { media(type: ANIME, isAdult: false, sort: TRENDING_DESC) { ${BROWSE_FIELDS} } }
-      thisSeason: Page(perPage: 20) { media(type: ANIME, isAdult: false, season: $season, seasonYear: $year, sort: POPULARITY_DESC) { ${BROWSE_FIELDS} } }
-      nextSeason: Page(perPage: 20) { media(type: ANIME, isAdult: false, season: $nextSeason, seasonYear: $nextYear, sort: POPULARITY_DESC) { ${BROWSE_FIELDS} } }
-      popular: Page(perPage: 20) { media(type: ANIME, isAdult: false, sort: POPULARITY_DESC) { ${BROWSE_FIELDS} } }
-      topRated: Page(perPage: 20) { media(type: ANIME, isAdult: false, sort: SCORE_DESC) { ${BROWSE_FIELDS} } }
+      trending: Page(perPage: 20) { media(type: ANIME, ${A}sort: TRENDING_DESC) { ${BROWSE_FIELDS} } }
+      thisSeason: Page(perPage: 20) { media(type: ANIME, ${A}season: $season, seasonYear: $year, sort: POPULARITY_DESC) { ${BROWSE_FIELDS} } }
+      nextSeason: Page(perPage: 20) { media(type: ANIME, ${A}season: $nextSeason, seasonYear: $nextYear, sort: POPULARITY_DESC) { ${BROWSE_FIELDS} } }
+      popular: Page(perPage: 20) { media(type: ANIME, ${A}sort: POPULARITY_DESC) { ${BROWSE_FIELDS} } }
+      topRated: Page(perPage: 20) { media(type: ANIME, ${A}sort: SCORE_DESC) { ${BROWSE_FIELDS} } }
     }`,
     { season: cur.season, year: cur.year, nextSeason: next.season, nextYear: next.year },
   );
@@ -342,9 +349,9 @@ export async function browseAnime(now = new Date()): Promise<BrowseRow[]> {
 }
 
 /** Trending anime with wide banner art for the Discover banner (AniList has no title logos). */
-export async function featuredAnime(): Promise<FeaturedItem[]> {
+export async function featuredAnime(adult = false): Promise<FeaturedItem[]> {
   const data = await gql<{ Page: { media: any[] } }>(
-    `query { Page(perPage: 25) { media(type: ANIME, isAdult: false, sort: TRENDING_DESC) {
+    `query { Page(perPage: 25) { media(type: ANIME, ${adult ? '' : 'isAdult: false, '}sort: TRENDING_DESC) {
       id title { romaji english } format episodes seasonYear startDate { year } averageScore genres
       bannerImage coverImage { extraLarge large } description(asHtml: false)
     } } }`,
@@ -593,6 +600,8 @@ export interface AnimeGenre {
   group: 'genre' | 'theme';
   /** Themes shown straight away (the rest are found by typing). */
   popular?: boolean;
+  /** 18+: only offered to users allowed to see it. */
+  adult?: boolean;
 }
 
 /** How many of the most-used themes are shown before you search (the rest are found by typing). */
@@ -631,13 +640,13 @@ export async function animeGenres(): Promise<AnimeGenre[]> {
     ),
     themeUsage().catch(() => null),
   ]);
-  const genres: AnimeGenre[] = data.GenreCollection.filter((g) => g !== 'Hentai').map((g) => ({ id: g, name: g, group: 'genre' }));
+  const genres: AnimeGenre[] = data.GenreCollection.map((g) => ({ id: g, name: g, group: 'genre' as const, ...(g === 'Hentai' ? { adult: true } : {}) }));
   const used = (name: string) => usage?.get(name) ?? (FALLBACK_TOP.includes(name) ? FALLBACK_TOP.length - FALLBACK_TOP.indexOf(name) : 0);
-  const themes = data.MediaTagCollection.filter((t) => !t.isAdult && !NOT_THEMES.has(t.category))
-    .map((t) => ({ id: `tag:${t.name}`, name: t.name, group: 'theme' as const, uses: NOT_UP_FRONT_CATEGORIES.has(t.category) || NOT_UP_FRONT.has(t.name) ? 0 : used(t.name) }))
+  const themes = data.MediaTagCollection.filter((t) => !NOT_THEMES.has(t.category))
+    .map((t) => ({ id: `tag:${t.name}`, name: t.name, group: 'theme' as const, adult: t.isAdult, uses: t.isAdult || NOT_UP_FRONT_CATEGORIES.has(t.category) || NOT_UP_FRONT.has(t.name) ? 0 : used(t.name) }))
     // Most used first, then A–Z.
     .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
-  const list: AnimeGenre[] = themes.map((t, i) => ({ id: t.id, name: t.name, group: t.group, popular: i < TOP_THEMES && t.uses > 0 }));
+  const list: AnimeGenre[] = themes.map((t, i) => ({ id: t.id, name: t.name, group: t.group, popular: i < TOP_THEMES && t.uses > 0, ...(t.adult ? { adult: true } : {}) }));
   genreList = { at: Date.now(), list: [...genres, ...list] };
   return genreList.list;
 }
@@ -678,7 +687,7 @@ export function animeFilterVariables(f: AnimeFilter, page: number, perPage = 30)
   };
 }
 
-export async function filterAnime(f: AnimeFilter, page: number, perPage = 30): Promise<{ media: FilteredAnime[]; hasNext: boolean }> {
+export async function filterAnime(f: AnimeFilter, page: number, perPage = 30, adult = false): Promise<{ media: FilteredAnime[]; hasNext: boolean }> {
   const vars = animeFilterVariables(f, page, perPage);
   // Only the filters in use are sent (AniList rejects some combinations of empty ones).
   const ARGS: Record<string, [string, string]> = {
@@ -698,7 +707,7 @@ export async function filterAnime(f: AnimeFilter, page: number, perPage = 30): P
   };
   const used = Object.keys(ARGS).filter((k) => vars[k] !== null && vars[k] !== undefined);
   const decl = ['$page: Int', '$perPage: Int', ...used.map((k) => `$${k}: ${ARGS[k][1]}`)].join(', ');
-  const args = ['type: ANIME', 'isAdult: false', ...used.map((k) => `${ARGS[k][0]}: $${k}`)].join(', ');
+  const args = ['type: ANIME', ...(adult ? [] : ['isAdult: false']), ...used.map((k) => `${ARGS[k][0]}: $${k}`)].join(', ');
   const variables: Record<string, unknown> = { page: vars.page, perPage: vars.perPage };
   for (const k of used) variables[k] = vars[k];
   const data = await gql<{ Page: { pageInfo: { hasNextPage: boolean }; media: any[] } }>(

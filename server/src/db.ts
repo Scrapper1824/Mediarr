@@ -17,6 +17,8 @@ export interface MediaRow {
   poster: string | null;
   /** Wide image for the Home page (TMDB backdrop / AniList banner). */
   backdrop: string | null;
+  /** 18+ (TMDB "adult" / AniList isAdult): only shown to users allowed to see it. */
+  adult: number;
   /** Shows: TMDB's season names (JSON {"1": "Season 1", "3": "The Final Season"}). */
   season_names: string | null;
   overview: string | null;
@@ -302,6 +304,7 @@ function migrate() {
   const cols = (db.prepare('PRAGMA table_info(media)').all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes('anime_seasons')) db.exec('ALTER TABLE media ADD COLUMN anime_seasons TEXT');
   if (!cols.includes('backdrop')) db.exec('ALTER TABLE media ADD COLUMN backdrop TEXT');
+  if (!cols.includes('adult')) db.exec('ALTER TABLE media ADD COLUMN adult INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('season_names')) db.exec('ALTER TABLE media ADD COLUMN season_names TEXT');
   const epCols = (db.prepare('PRAGMA table_info(episodes)').all() as { name: string }[]).map((c) => c.name);
   if (!epCols.includes('overview')) db.exec('ALTER TABLE episodes ADD COLUMN overview TEXT');
@@ -327,6 +330,7 @@ function migrate() {
   const userCols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
   if (!userCols.includes('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
   if (!userCols.includes('needs_approval')) db.exec('ALTER TABLE users ADD COLUMN needs_approval INTEGER NOT NULL DEFAULT 0');
+  if (!userCols.includes('allow_adult')) db.exec('ALTER TABLE users ADD COLUMN allow_adult INTEGER NOT NULL DEFAULT 0');
 }
 
 export const now = () => new Date().toISOString();

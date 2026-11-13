@@ -78,14 +78,14 @@ export function parseFilter(q: Record<string, unknown>): DiscoverFilter {
 const ANIME_TARGET = 24;
 const MAX_ANIME_PAGES = 5;
 
-export async function discoverFiltered(type: MediaType, f: DiscoverFilter, page: number): Promise<FilteredPage> {
-  if (type !== 'anime') return filterTmdb(type, f, page);
+export async function discoverFiltered(type: MediaType, f: DiscoverFilter, page: number, adult = false): Promise<FilteredPage> {
+  if (type !== 'anime') return filterTmdb(type, f, page, adult);
 
   const items: FilteredPage['items'] = [];
   let next: number | null = page;
   for (let i = 0; next !== null && i < MAX_ANIME_PAGES && items.length < ANIME_TARGET; i++) {
     // Dub/sub filtering thins pages out, so look at more titles per page.
-    const r: { media: FilteredAnime[]; hasNext: boolean } = await filterAnime(f, next, f.audio ? 50 : 30);
+    const r: { media: FilteredAnime[]; hasNext: boolean } = await filterAnime(f, next, f.audio ? 50 : 30, adult);
     next = r.hasNext ? next + 1 : null;
     // Which of them have an English dub (shown on the cards; needed for the Dubbed/Sub only filter).
     let dubbed: Map<number, boolean | null>;
@@ -108,7 +108,7 @@ export async function discoverFiltered(type: MediaType, f: DiscoverFilter, page:
 }
 
 /** The genres to choose from on each tab. */
-export async function genresFor(type: MediaType): Promise<{ id: string; name: string; group?: 'genre' | 'theme'; popular?: boolean }[]> {
-  if (type === 'anime') return animeGenres();
+export async function genresFor(type: MediaType, adult = false): Promise<{ id: string; name: string; group?: 'genre' | 'theme'; popular?: boolean; adult?: boolean }[]> {
+  if (type === 'anime') return (await animeGenres()).filter((g) => adult || !g.adult);
   return tmdbGenres(type);
 }

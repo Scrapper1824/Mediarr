@@ -178,7 +178,8 @@ export async function apiRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { type: MediaType; q: string } }>('/api/discover/search', async (req) => {
     const { type, q } = req.query;
     if (!q?.trim()) return [];
-    const results = type === 'movie' ? await searchMovies(q) : type === 'show' ? await withEpisodeCounts(await searchShows(q)) : await searchAnime(q);
+    const adult = !!req.user!.allow_adult;
+    const results = type === 'movie' ? await searchMovies(q, adult) : type === 'show' ? await withEpisodeCounts(await searchShows(q, adult)) : await searchAnime(q, adult);
     return withLibraryIds(type, results);
   });
 
@@ -209,20 +210,23 @@ export async function apiRoutes(app: FastifyInstance) {
   });
 
   // Trending / new / popular rows for Discover. Cached so switching tabs doesn't hit TMDB/AniList each time.
-  const browseCache = new Map<MediaType, { at: number; featured: FeaturedItem[]; rows: BrowseRow[] }>();
+  // Kept per type and per "18+ allowed", since the two see different lists.
+  const browseCache = new Map<string, { at: number; featured: FeaturedItem[]; rows: BrowseRow[] }>();
   const BROWSE_TTL_MS = 30 * 60_000;
   app.get<{ Querystring: { type: MediaType } }>('/api/discover/browse', async (req, reply) => {
     const type = req.query.type;
     if (!['movie', 'show', 'anime'].includes(type)) return reply.code(400).send({ error: 'Unknown type' });
-    let cached = browseCache.get(type);
+    const adult = !!req.user!.allow_adult;
+    const key = `${type}:${adult}`;
+    let cached = browseCache.get(key);
     if (!cached || Date.now() - cached.at > BROWSE_TTL_MS) {
       const [rows, featured] = await Promise.all([
-        type === 'anime' ? browseAnime() : browseTmdb(type),
+        type === 'anime' ? browseAnime(new Date(), adult) : browseTmdb(type, adult),
         // The banner is a nice-to-have: if it fails, the rows still load.
-        (type === 'anime' ? featuredAnime() : featuredTmdb(type)).catch(() => [] as FeaturedItem[]),
+        (type === 'anime' ? featuredAnime(adult) : featuredTmdb(type, adult)).catch(() => [] as FeaturedItem[]),
       ]);
       cached = { at: Date.now(), featured, rows };
-      browseCache.set(type, cached);
+      browseCache.set(key, cached);
     }
     // Library flags are added fresh each time so "In library" is always current.
     return {
@@ -236,12 +240,12 @@ export async function apiRoutes(app: FastifyInstance) {
     const type = req.query.type;
     if (!['movie', 'show', 'anime'].includes(type)) return reply.code(400).send({ error: 'Unknown type' });
     const page = Math.min(500, Math.max(1, Math.floor(Number(req.query.page) || 1)));
-    const r = await discoverFiltered(type, parseFilter(req.query), page);
+    const r = await discoverFiltered(type, parseFilter(req.query), page, !!req.user!.allow_adult);
     return { items: withLibraryIds(type, r.items), nextPage: r.nextPage };
   });
   app.get<{ Querystring: { type: MediaType } }>('/api/discover/genres', async (req, reply) => {
     if (!['movie', 'show', 'anime'].includes(req.query.type)) return reply.code(400).send({ error: 'Unknown type' });
-    return genresFor(req.query.type);
+    return genresFor(req.query.type, !!req.user!.allow_adult);
   });
 
   // Anime: what's out subbed and dubbed, and when the rest is expected (cached a few hours).
@@ -265,6 +269,14 @@ export async function apiRoutes(app: FastifyInstance) {
     return {};
   });
 
+  app.addHook('preHandler', async (req, reply) => {
+    if (!req.user || req.user.allow_adult) return;
+    if ((req.routeOptions.url ?? '').startsWith('/api/media/:id')) {
+      const m = getMedia(Number((req.params as { id?: string }).id));
+      if (m?.adult) return reply.code(404).send({ error: 'Not found' });
+    }
+  });
+
   // ---- Library ----
   app.get<{ Querystring: { type?: MediaType } }>('/api/media', async (req) => {
     const rows = (
@@ -272,7 +284,8 @@ export async function apiRoutes(app: FastifyInstance) {
         ? db.prepare('SELECT * FROM media WHERE type = ? ORDER BY title').all(req.query.type)
         : db.prepare('SELECT * FROM media ORDER BY title').all()
     ) as unknown as MediaRow[];
-    return rows.map(mediaSummary);
+    // 18+ titles only for users allowed to see them.
+    return rows.filter((m) => req.user!.allow_adult || !m.adult).map(mediaSummary);
   });
 
   app.get<{ Params: { id: string } }>('/api/media/:id', async (req) => {
@@ -440,14 +453,14 @@ export async function apiRoutes(app: FastifyInstance) {
   });
 
   // ---- Queue & history ----
-  app.get('/api/queue', async () =>
+  app.get('/api/queue', async (req) =>
     db
       .prepare(
         `SELECT d.*, m.title AS media_title, m.type AS media_type FROM downloads d JOIN media m ON m.id = d.media_id
-         WHERE d.state IN ('queued','downloading','importing') OR (d.state = 'failed' AND d.updated_at > ?)
+         WHERE (d.state IN ('queued','downloading','importing') OR (d.state = 'failed' AND d.updated_at > ?)) AND (? = 1 OR m.adult = 0)
          ORDER BY d.id DESC`,
       )
-      .all(new Date(Date.now() - 7 * 86400_000).toISOString()),
+      .all(new Date(Date.now() - 7 * 86400_000).toISOString(), req.user!.allow_adult ? 1 : 0),
   );
 
   app.delete<{ Params: { id: string }; Querystring: { deleteFiles?: string } }>('/api/queue/:id', async (req) => {
@@ -466,12 +479,13 @@ export async function apiRoutes(app: FastifyInstance) {
     return db.prepare('SELECT * FROM downloads WHERE id = ?').get(dl.id);
   });
 
-  app.get('/api/history', async () =>
+  app.get('/api/history', async (req) =>
     db
       .prepare(
-        `SELECT h.*, m.title AS media_title FROM history h LEFT JOIN media m ON m.id = h.media_id ORDER BY h.id DESC LIMIT 300`,
+        `SELECT h.*, m.title AS media_title FROM history h LEFT JOIN media m ON m.id = h.media_id
+         WHERE ? = 1 OR m.adult IS NULL OR m.adult = 0 ORDER BY h.id DESC LIMIT 300`,
       )
-      .all(),
+      .all(req.user!.allow_adult ? 1 : 0),
   );
 
   app.get('/api/status', async () => ({ ok: true, time: now() }));

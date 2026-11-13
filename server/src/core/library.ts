@@ -63,14 +63,14 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
   }
 
   const insert = db.prepare(`INSERT INTO media
-    (type, tmdb_id, anilist_id, title, alt_titles, year, poster, overview, root_folder, folder_name, monitored, anime_audio, status, release_date, added_at, last_refresh, anime_seasons, backdrop)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    (type, tmdb_id, anilist_id, title, alt_titles, year, poster, overview, root_folder, folder_name, monitored, anime_audio, status, release_date, added_at, last_refresh, anime_seasons, backdrop, adult)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   if (input.type === 'movie') {
     const m = await getMovie(input.tmdbId!);
     const alt = m.originalTitle && m.originalTitle !== m.title ? [m.originalTitle] : [];
     const r = insert.run('movie', m.tmdbId, null, m.title, JSON.stringify(alt), m.year, m.poster, m.overview, rootFor(folderName('movie', m.title, m.year)),
-      nameFor(folderName('movie', m.title, m.year)), monitored ? 1 : 0, null, m.status, m.releaseDate, now(), now(), null, m.backdrop ?? null);
+      nameFor(folderName('movie', m.title, m.year)), monitored ? 1 : 0, null, m.status, m.releaseDate, now(), now(), null, m.backdrop ?? null, m.adult ? 1 : 0);
     logHistory(Number(r.lastInsertRowid), 'added', `Added movie ${m.title}${by(input)}`);
     return Number(r.lastInsertRowid);
   }
@@ -79,7 +79,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
     const show = await getShow(input.tmdbId!);
     const alt = show.originalTitle && show.originalTitle !== show.title ? [show.originalTitle] : [];
     const r = insert.run('show', show.tmdbId, null, show.title, JSON.stringify(alt), show.year, show.poster, show.overview, rootFor(folderName('show', show.title, show.year)),
-      nameFor(folderName('show', show.title, show.year)), monitored ? 1 : 0, null, show.status, null, now(), now(), null, show.backdrop ?? null);
+      nameFor(folderName('show', show.title, show.year)), monitored ? 1 : 0, null, show.status, null, now(), now(), null, show.backdrop ?? null, show.adult ? 1 : 0);
     const id = Number(r.lastInsertRowid);
     db.prepare('UPDATE media SET season_names = ? WHERE id = ?').run(seasonNamesJson(show.seasons), id);
     const eps = await getShowEpisodes(show.tmdbId, show.seasons.map((x) => x.season));
@@ -98,7 +98,7 @@ export async function addMedia(input: AddMediaInput): Promise<number> {
   if (existing) return existing;
   const audio = input.animeAudio ?? s.defaultAnimeAudio;
   const r = insert.run('anime', null, a.anilistId, a.title, JSON.stringify(a.altTitles), a.year, a.poster, a.overview, rootFor(folderName('anime', a.title, a.year)),
-    nameFor(folderName('anime', a.title, a.year)), monitored ? 1 : 0, audio, a.status, null, now(), now(), JSON.stringify(a.seasons), a.backdrop ?? null);
+    nameFor(folderName('anime', a.title, a.year)), monitored ? 1 : 0, audio, a.status, null, now(), now(), JSON.stringify(a.seasons), a.backdrop ?? null, a.adult ? 1 : 0);
   const id = Number(r.lastInsertRowid);
   const wanted = new Set(input.seasons ?? a.seasons.map((x) => x.season));
   upsertEpisodes(id, animeEpisodes(a), (e) => wanted.has(e.season));
@@ -189,8 +189,8 @@ export async function refreshMedia(id: number): Promise<void> {
   );
   if (m.type === 'movie') {
     const d = await getMovie(m.tmdb_id!);
-    db.prepare('UPDATE media SET status = ?, release_date = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
-      d.status, d.releaseDate, d.poster, d.backdrop ?? null, d.overview, now(), id);
+    db.prepare('UPDATE media SET status = ?, release_date = ?, poster = ?, backdrop = ?, overview = ?, adult = ?, last_refresh = ? WHERE id = ?').run(
+      d.status, d.releaseDate, d.poster, d.backdrop ?? null, d.overview, d.adult ? 1 : 0, now(), id);
     return;
   }
   if (m.type === 'show') {
@@ -202,8 +202,8 @@ export async function refreshMedia(id: number): Promise<void> {
       eps.map((e) => ({ season: e.season, episode: e.episode, absolute: null, title: e.title, airDate: e.airDate, overview: e.overview, still: e.still })),
       (e) => e.season > 0 && (monitoredSeasons.has(e.season) || (!!m.monitored && !known.has(e.season))),
     );
-    db.prepare('UPDATE media SET status = ?, poster = ?, backdrop = ?, overview = ?, season_names = ?, last_refresh = ? WHERE id = ?').run(
-      show.status, show.poster, show.backdrop ?? null, show.overview, seasonNamesJson(show.seasons), now(), id);
+    db.prepare('UPDATE media SET status = ?, poster = ?, backdrop = ?, overview = ?, season_names = ?, adult = ?, last_refresh = ? WHERE id = ?').run(
+      show.status, show.poster, show.backdrop ?? null, show.overview, seasonNamesJson(show.seasons), show.adult ? 1 : 0, now(), id);
     if (added) logHistory(id, 'refreshed', `Found ${added} new episode(s)`);
     return;
   }
@@ -214,8 +214,8 @@ export async function refreshMedia(id: number): Promise<void> {
     animeEpisodes(a),
     (e) => monitoredSeasons.has(e.season) || (!!m.monitored && !known.has(e.season)),
   );
-  db.prepare('UPDATE media SET status = ?, alt_titles = ?, anime_seasons = ?, poster = ?, backdrop = ?, overview = ?, last_refresh = ? WHERE id = ?').run(
-    a.status, JSON.stringify(a.altTitles), JSON.stringify(a.seasons), a.poster, a.backdrop ?? null, a.overview, now(), id);
+  db.prepare('UPDATE media SET status = ?, alt_titles = ?, anime_seasons = ?, poster = ?, backdrop = ?, overview = ?, adult = ?, last_refresh = ? WHERE id = ?').run(
+    a.status, JSON.stringify(a.altTitles), JSON.stringify(a.seasons), a.poster, a.backdrop ?? null, a.overview, a.adult ? 1 : 0, now(), id);
   if (added) logHistory(id, 'refreshed', `Found ${added} new episode(s)`);
   await fillAnimeEpisodeDetails(id).catch(() => 0);
 }
