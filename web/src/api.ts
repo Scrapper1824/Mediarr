@@ -98,6 +98,9 @@ export interface Download {
   select_files: number;
   created_at: string;
   updated_at: string;
+  /** Live from qBittorrent while downloading: bytes per second and seconds left. */
+  speed?: number | null;
+  eta?: number | null;
 }
 
 export interface MediaDetail extends Media {

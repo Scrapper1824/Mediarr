@@ -46,7 +46,7 @@ async function safePoll() {
 }
 
 export function startScheduler() {
-  setInterval(safePoll, 30_000);
+  setInterval(safePoll, 10_000);
   setTimeout(safePoll, 3_000);
 
   const scheduleMonitor = () => {

@@ -91,3 +91,49 @@ export async function pollDownloads(): Promise<void> {
     await runImport({ ...dl, content_path: contentPath, save_path: t.save_path, torrent_files: torrentFilesJson });
   }
 }
+
+// ---- Live progress for the Downloads page ----
+
+let live: { at: number; torrents: Promise<Awaited<ReturnType<typeof listTorrents>>> } | null = null;
+const LIVE_MS = 2000;
+
+/** qBittorrent's torrents, asked at most every 2 s however many pages are open. */
+function liveTorrents() {
+  if (!live || Date.now() - live.at > LIVE_MS) {
+    const torrents = listTorrents();
+    live = { at: Date.now(), torrents };
+    torrents.catch(() => (live = null));
+  }
+  return live.torrents;
+}
+
+export interface LiveDownload {
+  progress: number;
+  /** Bytes per second; 0 when stalled or paused. */
+  speed: number | null;
+  /** Seconds left, when qBittorrent can tell. */
+  eta: number | null;
+}
+
+/**
+ * Downloads with their progress as qBittorrent has it right now (the stored value is only updated by the
+ * background check). If qBittorrent can't be reached, the stored progress is shown as it is.
+ */
+export async function withLiveProgress<T extends Pick<DownloadRow, 'tag' | 'state' | 'progress'>>(rows: T[]): Promise<(T & Partial<LiveDownload>)[]> {
+  if (!rows.some((r) => r.state === 'queued' || r.state === 'downloading')) return rows;
+  let torrents: Awaited<ReturnType<typeof listTorrents>>;
+  try {
+    torrents = await liveTorrents();
+  } catch {
+    return rows;
+  }
+  const byTag = new Map<string, (typeof torrents)[number]>();
+  for (const t of torrents) for (const tag of t.tags.split(',')) byTag.set(tag.trim(), t);
+  return rows.map((r) => {
+    const t = r.state === 'queued' || r.state === 'downloading' ? byTag.get(r.tag) : undefined;
+    if (!t) return r;
+    // qBittorrent's "infinity" for an unknown ETA is 8640000 s (100 days).
+    const eta = t.eta > 0 && t.eta < 8640000 ? t.eta : null;
+    return { ...r, progress: Math.max(r.progress, t.progress), speed: t.dlspeed ?? null, eta };
+  });
+}
