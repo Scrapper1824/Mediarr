@@ -36,15 +36,15 @@ let last = 0;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function paced<T>(task: () => Promise<T>): Promise<T> {
   const run = queue.then(async () => {
-    const wait = last + GAP_MS - Date.now();
+    const wait = last + GAP_MS - performance.now();
     if (wait > 0) await sleep(wait);
-    last = Date.now();
+    last = performance.now();
     try {
       return await task();
     } catch (err) {
       if ((err as HttpError).status !== 429) throw err;
       await sleep(3000);
-      last = Date.now();
+      last = performance.now();
       return task();
     }
   });

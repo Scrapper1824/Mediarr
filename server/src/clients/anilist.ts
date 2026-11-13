@@ -1,15 +1,79 @@
 import type { AnimeSeason } from '../core/animeMatch.js';
-import { fetchJson } from './http.js';
+import { HttpError } from './http.js';
 import type { BrowseRow, FeaturedItem, SearchResult } from './tmdb.js';
 
 const URL_ = 'https://graphql.anilist.co';
 
+// ---- Staying within AniList's rate limit ----
+// AniList allows about 90 requests a minute (30 when it's busy) per address. Every request here gets a
+// start time from one schedule: a little apart, further apart when its "remaining" header runs low, and
+// when it still answers "too many requests" everything waits as long as AniList says, then tries again.
+// (Only starts are spaced: a slow answer never holds up the requests behind it.)
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A clock that never jumps (the wall clock can: time sync, daylight saving), for spacing requests. */
+const tick = () => performance.now();
+/** When the next request may start. */
+let nextStart = 0;
+let pauseUntil = 0;
+/** Spacing between starts; set from AniList's own limit headers (none until it has told us). */
+let gapMs = 0;
+/** Test hook: how long to wait when AniList gives no Retry-After. */
+export const aniListPacing = { defaultRetryMs: 60_000, maxRetries: 2 };
+
+function noteLimits(res: Response) {
+  const limit = Number(res.headers.get('x-ratelimit-limit'));
+  const remaining = Number(res.headers.get('x-ratelimit-remaining'));
+  if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(remaining)) return;
+  // Plenty left: small gaps. Getting low: spread what's left over the minute. Nearly out: wait for the reset.
+  gapMs = remaining > limit * 0.4 ? 100 : Math.ceil(60_000 / limit);
+  if (remaining <= 1) {
+    const reset = Number(res.headers.get('x-ratelimit-reset'));
+    pauseUntil = Math.max(pauseUntil, reset > 0 ? tick() + Math.max(0, reset * 1000 - Date.now()) : tick() + 60_000 / limit);
+  }
+}
+
+/** Waits for this request's turn (taking the slot right away, so turns are handed out in order). */
+async function takeTurn() {
+  const start = Math.max(tick(), nextStart, pauseUntil);
+  nextStart = start + gapMs;
+  const wait = start - tick();
+  if (wait > 0) await sleep(wait);
+  // A pause that began while this one waited (a 429 elsewhere) still applies.
+  if (pauseUntil > tick()) await takeTurn();
+}
+
+async function aniListPost<T>(body: string, token?: string): Promise<T> {
+  {
+    for (let attempt = 0; ; attempt++) {
+      await takeTurn();
+      let res: Response;
+      try {
+        res = await fetch(URL_, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body,
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (err) {
+        throw new HttpError(`Could not reach https://graphql.anilist.co: ${(err as Error).message}`);
+      }
+      noteLimits(res);
+      if (res.status === 429) {
+        const after = Number(res.headers.get('retry-after'));
+        pauseUntil = tick() + (Number.isFinite(after) && after >= 0 ? after * 1000 + 250 : aniListPacing.defaultRetryMs);
+        if (attempt < aniListPacing.maxRetries) continue;
+        throw new HttpError('AniList is getting too many requests right now. Try again in a minute.', 429);
+      }
+      const text = await res.text();
+      if (!res.ok) throw new HttpError(`${res.status} ${res.statusText} from https://graphql.anilist.co${text ? `: ${text.slice(0, 200)}` : ''}`, res.status);
+      return JSON.parse(text) as T;
+    }
+  }
+}
+
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const r = await fetchJson<{ data: T; errors?: { message: string }[] }>(URL_, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  });
+  const r = await aniListPost<{ data: T; errors?: { message: string }[] }>(JSON.stringify({ query, variables }));
   if (r.errors?.length) throw new Error(`AniList: ${r.errors[0].message}`);
   return r.data;
 }
@@ -468,11 +532,7 @@ export async function anilistDetails(id: number) {
 export type AniListStatus = 'CURRENT' | 'PLANNING' | 'COMPLETED' | 'DROPPED' | 'PAUSED' | 'REPEATING';
 
 async function gqlAs<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
-  const r = await fetchJson<{ data: T; errors?: { message: string; status?: number }[] }>(URL_, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify({ query, variables }),
-  });
+  const r = await aniListPost<{ data: T; errors?: { message: string; status?: number }[] }>(JSON.stringify({ query, variables }), token);
   if (r.errors?.length) throw new Error(`AniList: ${r.errors[0].message}`);
   return r.data;
 }

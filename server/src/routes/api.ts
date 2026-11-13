@@ -235,13 +235,25 @@ export async function apiRoutes(app: FastifyInstance) {
     };
   });
 
-  // Discover filters: genre, years, rating, status, format, dub/sub... (one page at a time).
+  // Discover filters: genre, years, rating, status, format, dub/sub... (one page at a time, cached a while
+  // so scrolling back or reopening a filter doesn't ask TMDB/AniList again).
+  const filterCache = new Map<string, { at: number; value: Awaited<ReturnType<typeof discoverFiltered>> }>();
+  const FILTER_TTL_MS = 10 * 60_000;
   app.get<{ Querystring: Record<string, string> & { type: MediaType; page?: string } }>('/api/discover/filter', async (req, reply) => {
     const type = req.query.type;
     if (!['movie', 'show', 'anime'].includes(type)) return reply.code(400).send({ error: 'Unknown type' });
     const page = Math.min(500, Math.max(1, Math.floor(Number(req.query.page) || 1)));
-    const r = await discoverFiltered(type, parseFilter(req.query), page, !!req.user!.allow_adult);
-    return { items: withLibraryIds(type, r.items), nextPage: r.nextPage };
+    const adult = !!req.user!.allow_adult;
+    const f = parseFilter(req.query);
+    const key = JSON.stringify([type, f, page, adult]);
+    let hit = filterCache.get(key);
+    if (!hit || Date.now() - hit.at > FILTER_TTL_MS) {
+      hit = { at: Date.now(), value: await discoverFiltered(type, f, page, adult) };
+      filterCache.set(key, hit);
+      if (filterCache.size > 400) filterCache.delete(filterCache.keys().next().value!);
+    }
+    // Library flags are added fresh each time so "In library" is always current.
+    return { items: withLibraryIds(type, hit.value.items), nextPage: hit.value.nextPage };
   });
   app.get<{ Querystring: { type: MediaType } }>('/api/discover/genres', async (req, reply) => {
     if (!['movie', 'show', 'anime'].includes(req.query.type)) return reply.code(400).send({ error: 'Unknown type' });

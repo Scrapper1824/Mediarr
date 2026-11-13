@@ -121,7 +121,7 @@ function FilteredResults({
   // A narrow filter (e.g. sub-only among popular action anime, which are nearly all dubbed) can leave
   // the first pages almost empty: keep looking for a few pages before leaving it to "Load more".
   const pages = list.data?.pages.length ?? 0;
-  const AUTO_PAGES = 6;
+  const AUTO_PAGES = 4;
   const lookingFurther = list.isSuccess && items.length < 12 && !!list.hasNextPage && pages < AUTO_PAGES;
   useEffect(() => {
     if (lookingFurther && !list.isFetchingNextPage && !list.isError) list.fetchNextPage();

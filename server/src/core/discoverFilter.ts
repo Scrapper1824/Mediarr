@@ -76,7 +76,7 @@ export function parseFilter(q: Record<string, unknown>): DiscoverFilter {
 
 /** How many anime cards a page should have, at least, when "Dubbed"/"Sub only" thins out AniList's pages. */
 const ANIME_TARGET = 24;
-const MAX_ANIME_PAGES = 5;
+const MAX_ANIME_PAGES = 3;
 
 export async function discoverFiltered(type: MediaType, f: DiscoverFilter, page: number, adult = false): Promise<FilteredPage> {
   if (type !== 'anime') return filterTmdb(type, f, page, adult);
