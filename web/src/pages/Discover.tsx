@@ -153,17 +153,15 @@ function FilteredResults({
   );
 }
 
-const FILTERS_KEY = 'mediarr.discoverFilters';
-/** Filters per tab, kept for this browser tab (so coming back to Discover keeps them). */
-function loadFilters(): Record<MediaType, Filters> {
-  const blank = { movie: emptyFilters(), show: emptyFilters(), anime: emptyFilters() };
+/** Every visit to Discover starts without filters (each tab keeps its own while you're on the page). */
+function noFilters(): Record<MediaType, Filters> {
+  // Filters saved by older versions aren't used any more.
   try {
-    const saved = JSON.parse(sessionStorage.getItem(FILTERS_KEY) ?? 'null');
-    if (saved) for (const t of ['movie', 'show', 'anime'] as const) blank[t] = { ...blank[t], ...saved[t] };
+    sessionStorage.removeItem('mediarr.discoverFilters');
   } catch {
-    // storage blocked or broken: start fresh
+    // storage blocked: nothing to clear
   }
-  return blank;
+  return { movie: emptyFilters(), show: emptyFilters(), anime: emptyFilters() };
 }
 
 export default function Discover() {
@@ -172,19 +170,11 @@ export default function Discover() {
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState<SearchResult | null>(null);
   const [viewing, setViewing] = useState<SearchResult | null>(null);
-  const [allFilters, setAllFilters] = useState(loadFilters);
+  const [allFilters, setAllFilters] = useState(noFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filters = allFilters[type];
   const nFilters = activeCount(filters);
-  const setFilters = (next: Filters) => {
-    const all = { ...allFilters, [type]: next };
-    setAllFilters(all);
-    try {
-      sessionStorage.setItem(FILTERS_KEY, JSON.stringify(all));
-    } catch {
-      // fine without
-    }
-  };
+  const setFilters = (next: Filters) => setAllFilters({ ...allFilters, [type]: next });
   // Filtering (panel open or something set) shows a results grid instead of the curated rows.
   const filtering = filtersOpen || nFilters > 0;
   // Anime searches can be combined with filters (AniList); TMDB's text search can't.
