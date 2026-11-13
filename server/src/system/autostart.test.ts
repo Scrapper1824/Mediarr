@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { getAutostart, setAutostart, startupCommand, TRAY_LAUNCHER } from './autostart.js';
+import path from 'node:path';
+import { getAutostart, refreshAppsEntry, setAutostart, startupCommand, TRAY_LAUNCHER } from './autostart.js';
 
 /** In-memory stand-in for reg.exe, so tests never touch the real registry. */
 function fakeReg() {
@@ -46,5 +47,24 @@ describe('start with Windows', () => {
     const reg = fakeReg();
     reg.values.set('Mediarr', 'wscript.exe "D:\\Old\\Mediarr\\tray\\Mediarr.vbs"');
     expect(await getAutostart(reg.runner)).toBe(false);
+  });
+});
+
+describe('Settings → Apps entry (installed with MediarrSetup.exe)', () => {
+  const root = path.dirname(path.dirname(TRAY_LAUNCHER));
+
+  it('keeps the version current for this folder', async () => {
+    const reg = fakeReg();
+    reg.values.set('InstallLocation', root);
+    expect(await refreshAppsEntry('1.2.3', reg.runner)).toBe(true);
+    expect(reg.values.get('DisplayVersion')).toBe('1.2.3');
+  });
+
+  it('leaves another install, or none, alone', async () => {
+    const reg = fakeReg();
+    expect(await refreshAppsEntry('1.2.3', reg.runner)).toBe(false);
+    reg.values.set('InstallLocation', path.join(root, 'elsewhere'));
+    expect(await refreshAppsEntry('1.2.3', reg.runner)).toBe(false);
+    expect(reg.values.has('DisplayVersion')).toBe(false);
   });
 });

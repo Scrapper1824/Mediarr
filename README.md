@@ -23,6 +23,7 @@ Download **[MediarrSetup.exe](https://github.com/Scrapper1824/Mediarr/releases/l
 2. checks for **Node.js**, **Git** and **FFmpeg**, and offers to install any that are missing (with winget)
 3. downloads the latest release from this repository, installs its packages and builds it
 4. adds Mediarr to the Start menu and the desktop, starts it and shows your first-run **setup code**
+5. adds Mediarr to **Settings → Apps** (and Control Panel → Programs), where **Uninstall** removes it again: it stops Mediarr and deletes the app, its shortcuts and its start-with-Windows entry. You choose whether your Mediarr data (settings, users, watch history) goes too; your media files are never touched.
 
 Windows may warn that the app is from an unknown publisher (it isn't code-signed): click **More info → Run anyway**. If something goes wrong, the full log is in `%TEMP%\MediarrSetup.log`.
 

@@ -20,3 +20,6 @@ setup-code.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+# Written by the Windows installer next to Mediarr (Settings → Apps uses it to uninstall).
+/Uninstall Mediarr.exe

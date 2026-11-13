@@ -54,6 +54,6 @@ $dist = Join-Path $here 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 $exe = Join-Path $dist 'MediarrSetup.exe'
 & $csc /nologo /target:winexe /optimize+ "/out:$exe" "/win32icon:$ico" "/win32manifest:$(Join-Path $here 'app.manifest')" `
-  /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll (Join-Path $here 'MediarrSetup.cs')
+  /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Management.dll (Join-Path $here 'MediarrSetup.cs')
 if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE)" }
 Write-Output "Built $exe"

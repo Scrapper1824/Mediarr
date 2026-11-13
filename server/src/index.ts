@@ -6,9 +6,10 @@ import { purgeExpiredSessions } from './auth/sessions.js';
 import { defaultDbPath, initDb } from './db.js';
 import { startScheduler } from './core/monitor.js';
 import { queueLibraryWork } from './playback/jobs.js';
-import { startUpdateChecks } from './system/updater.js';
+import { currentVersion, startUpdateChecks } from './system/updater.js';
 import { startLibraryScans } from './core/scanner.js';
 import { backfillBackdrops } from './core/library.js';
+import { refreshAppsEntry } from './system/autostart.js';
 
 // Started hidden from the tray there's no console: send console output to the log file as well.
 if (process.env.MEDIARR_LOG_FILE) {
@@ -45,6 +46,8 @@ setTimeout(() => queueLibraryWork(), 60_000).unref();
 setTimeout(() => void backfillBackdrops().catch(() => undefined), 20_000).unref();
 // New releases on GitHub show up as "Update available" for admins.
 startUpdateChecks(path.join(dataDir, 'update.log'));
+// Installed with MediarrSetup.exe: the version in Settings → Apps follows in-app updates.
+void refreshAppsEntry(currentVersion()).catch(() => undefined);
 // Titles and files put in the library folders outside Mediarr are picked up (then previews/intros are made for them).
 startLibraryScans(() => queueLibraryWork());
 await app.listen({ port: PORT, host: HOST });

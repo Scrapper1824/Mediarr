@@ -50,3 +50,22 @@ export async function setAutostart(enabled: boolean, runner: RegRunner = reg): P
   }
   return getAutostart(runner);
 }
+
+const APPS_KEY = 'HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Mediarr';
+
+/**
+ * Installed with MediarrSetup.exe: keep the version shown in Settings → Apps current after in-app updates.
+ * Only touches the entry when it belongs to this folder.
+ */
+export async function refreshAppsEntry(version: string, runner: RegRunner = reg): Promise<boolean> {
+  if (!autostartSupported() && runner === reg) return false;
+  try {
+    const { stdout } = await runner(['query', APPS_KEY, '/v', 'InstallLocation']);
+    const location = /InstallLocation\s+REG_\w+\s+(.+)/.exec(stdout)?.[1]?.trim();
+    if (!location || path.resolve(location).toLowerCase() !== ROOT.toLowerCase()) return false;
+    await runner(['add', APPS_KEY, '/v', 'DisplayVersion', '/t', 'REG_SZ', '/d', version, '/f']);
+    return true;
+  } catch {
+    return false; // not installed with the installer
+  }
+}
