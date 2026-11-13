@@ -1,5 +1,5 @@
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useState } from 'react';
+import { NavLink, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Download } from './api';
 import Discover from './pages/Discover';
@@ -58,6 +58,16 @@ export default function App() {
     );
   }
   return <Shell />;
+}
+
+/** Opening a page starts at its top; Back/Forward keep the browser's own scroll position. */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  const how = useNavigationType();
+  useEffect(() => {
+    if (how !== 'POP') window.scrollTo(0, 0);
+  }, [pathname, how]);
+  return null;
 }
 
 function Shell() {
@@ -127,6 +137,7 @@ function Shell() {
         </div>
       </aside>
       {updating && <UpdateDialog onClose={() => setUpdating(false)} />}
+      <ScrollToTop />
       <main className="content">
         <Routes>
           <Route path="/" element={<Home />} />
