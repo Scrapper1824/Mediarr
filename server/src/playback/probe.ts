@@ -161,7 +161,8 @@ export async function extractSubtitle(file: string, track: SubtitleTrack): Promi
   return out;
 }
 
-const safeFontName = (name: string) => path.basename(name).replace(/[^\w.\- ]/g, '_');
+// No leading dots, so a name like ".." can never point outside the fonts folder.
+const safeFontName = (name: string) => path.basename(name).replace(/[^\w.\- ]/g, '_').replace(/^\.+/, '_') || '_';
 
 /** The file's embedded fonts in a folder (dumped once). Returns their file names. */
 export async function dumpFonts(file: string, probe: MediaProbe): Promise<{ dir: string; names: string[] }> {

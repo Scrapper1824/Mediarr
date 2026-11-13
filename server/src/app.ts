@@ -73,9 +73,9 @@ export async function buildApp(opts: {
       cacheControl: false,
       // The page is never kept by a browser or a proxy (Cloudflare), so an update takes effect on the next
       // load; its scripts/styles/fonts have the build's hash in their names, so they can be kept for good.
-      setHeaders: (res, filePath) => {
+      setHeaders: (reply, filePath) => {
         const immutable = /[\\/]assets[\\/]/.test(filePath);
-        res.setHeader('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache, private');
+        reply.header('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache, private');
       },
     });
   }

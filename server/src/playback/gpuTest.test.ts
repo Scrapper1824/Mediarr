@@ -5,11 +5,11 @@ const HEAD = ' SESSIONNAME       USERNAME                 ID  STATE   TYPE      
 
 describe('which Windows session Mediarr runs in', () => {
   it('reads the console session', () => {
-    expect(parseQuerySession(`${HEAD}>console           jacob                     1  Active                      \r\n`)).toEqual({ name: 'console', id: 1, state: 'Active' });
+    expect(parseQuerySession(`${HEAD}>console           admin                     1  Active                      \r\n`)).toEqual({ name: 'console', id: 1, state: 'Active' });
   });
 
   it('reads a connected Remote Desktop session', () => {
-    expect(parseQuerySession(`${HEAD} console                                     1  Conn\r\n>rdp-tcp#3         jacob                     2  Active\r\n`)).toEqual({
+    expect(parseQuerySession(`${HEAD} console                                     1  Conn\r\n>rdp-tcp#3         admin                     2  Active\r\n`)).toEqual({
       name: 'rdp-tcp#3',
       id: 2,
       state: 'Active',
@@ -17,7 +17,7 @@ describe('which Windows session Mediarr runs in', () => {
   });
 
   it('reads a disconnected session, which has no name', () => {
-    expect(parseQuerySession(`${HEAD}>                  jacob                     2  Disc\r\n console                                     1  Conn\r\n`)).toEqual({
+    expect(parseQuerySession(`${HEAD}>                  admin                     2  Disc\r\n console                                     1  Conn\r\n`)).toEqual({
       name: '',
       id: 2,
       state: 'Disc',
@@ -26,6 +26,6 @@ describe('which Windows session Mediarr runs in', () => {
 
   it('copes with output it doesn’t understand', () => {
     expect(parseQuerySession('')).toBeNull();
-    expect(parseQuerySession(`${HEAD} console   jacob   1  Active\r\n`)).toBeNull();
+    expect(parseQuerySession(`${HEAD} console   admin   1  Active\r\n`)).toBeNull();
   });
 });

@@ -39,7 +39,7 @@ async function setup(): Promise<string> {
     method: 'POST',
     url: '/api/auth/setup',
     headers: CSRF,
-    payload: { code: setupCode, username: 'jacob', password: PASSWORD },
+    payload: { code: setupCode, username: 'owner', password: PASSWORD },
   });
   expect(res.statusCode).toBe(200);
   return cookieFrom(res);
@@ -75,7 +75,7 @@ describe('everything needs a login', () => {
 
 describe('first-run setup', () => {
   it('needs the setup code, then works once', async () => {
-    const wrong = await app.inject({ method: 'POST', url: '/api/auth/setup', headers: CSRF, payload: { code: 'AAAAA-BBBBB', username: 'jacob', password: PASSWORD } });
+    const wrong = await app.inject({ method: 'POST', url: '/api/auth/setup', headers: CSRF, payload: { code: 'AAAAA-BBBBB', username: 'owner', password: PASSWORD } });
     expect(wrong.statusCode).toBe(401);
 
     const cookie = await setup();
@@ -86,14 +86,14 @@ describe('first-run setup', () => {
   });
 
   it('rejects weak passwords', async () => {
-    for (const password of ['short', 'jacobjacobjacob', 'aaaaaaaaaaaaaaa']) {
-      const res = await app.inject({ method: 'POST', url: '/api/auth/setup', headers: CSRF, payload: { code: setupCode, username: 'jacob', password } });
+    for (const password of ['short', 'ownerownerowner', 'aaaaaaaaaaaaaaa']) {
+      const res = await app.inject({ method: 'POST', url: '/api/auth/setup', headers: CSRF, payload: { code: setupCode, username: 'owner', password } });
       expect(res.statusCode, password).toBe(400);
     }
   });
 
   it('sets a hardened session cookie', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/auth/setup', headers: CSRF, payload: { code: setupCode, username: 'jacob', password: PASSWORD } });
+    const res = await app.inject({ method: 'POST', url: '/api/auth/setup', headers: CSRF, payload: { code: setupCode, username: 'owner', password: PASSWORD } });
     const set = String(res.headers['set-cookie']);
     expect(set).toMatch(/HttpOnly/);
     expect(set).toMatch(/SameSite=Strict/);
@@ -103,7 +103,7 @@ describe('first-run setup', () => {
       method: 'POST',
       url: '/api/auth/login',
       headers: { ...CSRF, 'x-forwarded-proto': 'https' },
-      payload: { username: 'jacob', password: PASSWORD },
+      payload: { username: 'owner', password: PASSWORD },
       remoteAddress: '127.0.0.1',
     });
     expect(String(https.headers['set-cookie'])).toMatch(/Secure/);
@@ -114,7 +114,7 @@ describe('login', () => {
   it('gives the same answer for a wrong user and a wrong password', async () => {
     await setup();
     const a = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'nobody', password: PASSWORD } });
-    const b = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: 'wrong password!!' } });
+    const b = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: 'wrong password!!' } });
     expect(a.statusCode).toBe(401);
     expect(a.body).toBe(b.body);
   });
@@ -122,9 +122,9 @@ describe('login', () => {
   it('locks out after repeated failures, even with the right password', async () => {
     await setup();
     for (let i = 0; i < 5; i++) {
-      await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: `wrong ${i} password` } });
+      await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: `wrong ${i} password` } });
     }
-    const locked = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: PASSWORD } });
+    const locked = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: PASSWORD } });
     expect(locked.statusCode).toBe(429);
     expect(locked.headers['retry-after']).toBeDefined();
   });
@@ -137,7 +137,7 @@ describe('login', () => {
 
   it('changing the password signs out other sessions', async () => {
     const first = await setup();
-    const login = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: PASSWORD } });
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: PASSWORD } });
     const second = cookieFrom(login);
     const res = await app.inject({
       method: 'POST',
@@ -191,7 +191,7 @@ describe('cross-site protection and headers', () => {
       url: '/api/auth/login',
       headers: { ...CSRF, 'x-forwarded-for': '10.0.0.99' },
       remoteAddress: '203.0.113.9',
-      payload: { username: 'jacob', password: PASSWORD },
+      payload: { username: 'owner', password: PASSWORD },
     });
     expect(res.statusCode).toBe(429);
   }, 30_000); // 13 deliberately slow password checks
@@ -206,15 +206,15 @@ describe('two-factor', () => {
     const code = codeAt(secret, currentCounter() - 1); // previous window: still accepted
     expect((await app.inject({ method: 'POST', url: '/api/auth/totp/enable', headers: { ...CSRF, cookie }, payload: { code } })).statusCode).toBe(200);
 
-    const noCode = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: PASSWORD } });
+    const noCode = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: PASSWORD } });
     expect(noCode.statusCode).toBe(401);
     expect(noCode.json()).toMatchObject({ totpRequired: true });
 
-    const replay = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: PASSWORD, code } });
+    const replay = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: PASSWORD, code } });
     expect(replay.statusCode).toBe(401); // the code used to enable can't be reused
 
     const fresh = codeAt(secret, currentCounter());
-    const ok = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'jacob', password: PASSWORD, code: fresh } });
+    const ok = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'owner', password: PASSWORD, code: fresh } });
     expect(ok.statusCode).toBe(200);
   });
 });

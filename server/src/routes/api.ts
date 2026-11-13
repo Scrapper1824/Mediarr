@@ -26,7 +26,7 @@ import {
   searchReleases,
   searchStatus,
 } from '../core/grabber.js';
-import { addMedia, animeSeasons, isAired, refreshMedia, withLibraryIds, type AddMediaInput } from '../core/library.js';
+import { addMedia, requestedMedia, animeSeasons, isAired, refreshMedia, withLibraryIds, type AddMediaInput } from '../core/library.js';
 import { getMediaInfo, type MediaInfo } from '../core/mediaInfo.js';
 import { testOmdb } from '../clients/ratings.js';
 import { autostartSupported, getAutostart, setAutostart } from '../system/autostart.js';
@@ -282,7 +282,7 @@ export async function apiRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: AddMediaInput & { searchNow?: boolean } }>('/api/media', async (req) => {
-    const id = await addMedia({ ...req.body, requestedBy: req.user!.username });
+    const id = await addMedia({ ...requestedMedia(req.body), requestedBy: req.user!.username });
     if (req.body.searchNow !== false) {
       // Run in the background; the UI polls the detail page for progress.
       autoSearch(id, { force: true, userId: req.user!.id }).catch((err) => logHistory(id, 'failed', `Search failed: ${err.message}`));

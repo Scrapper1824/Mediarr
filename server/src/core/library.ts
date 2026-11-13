@@ -39,6 +39,15 @@ const seasonNamesJson = (seasons: { season: number; name: string }[]) =>
 const by = (input: AddMediaInput) =>
   input.location ? ` (found in ${input.location.root})` : input.requestedBy ? ` (requested by ${input.requestedBy})` : '';
 
+/**
+ * What a request from the web app may set when adding a title. Where it's stored is never taken from the
+ * client (only the server's own library scan passes `location`), so nobody can point a title at any folder.
+ */
+export function requestedMedia(body: AddMediaInput): AddMediaInput {
+  const { location: _ignored, requestedBy: _by, ...rest } = body ?? ({} as AddMediaInput);
+  return rest as AddMediaInput;
+}
+
 export async function addMedia(input: AddMediaInput): Promise<number> {
   const s = getSettings();
   const rootFor = (folder: string) => input.location?.root ?? chooseRoot(s, input.type, folder)!;
