@@ -1133,14 +1133,15 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 /* Discover cards: Home's poster cards, with an "In library" tag and a quick-request + on hover. */
 .discover-card button.home-poster-link, .discover-card .discover-name { background: none; border: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
 .discover-art { position: relative; }
-.discover-owned { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #8fe3b5; background: rgba(10, 12, 18, 0.72); backdrop-filter: blur(8px); }
+.discover-owned { position: absolute; bottom: 8px; left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #8fe3b5; background: rgba(10, 12, 18, 0.72); backdrop-filter: blur(8px); }
 .discover-add {
-  position: absolute; top: 8px; right: 8px; z-index: 2; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  position: absolute; bottom: 8px; right: 8px; z-index: 2; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
   border: none; cursor: pointer; color: var(--accent-ink); background: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   opacity: 0; transform: scale(0.85); transition: opacity 0.18s, transform 0.18s, background 0.15s;
 }
 .discover-add:hover { background: var(--accent-hover); }
-.discover-art:hover .discover-add, .discover-add:focus-visible, .discover-art:focus-within .discover-add { opacity: 1; transform: none; }
+/* Follows the poster's bottom-right corner as it lifts on hover. */
+.discover-art:hover .discover-add, .discover-add:focus-visible, .discover-art:focus-within .discover-add { opacity: 1; transform: translate(3px, 1px); }
 .discover-art:hover .home-poster { transform: translateY(-3px) scale(1.03); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55); }
 .discover-card .discover-name { display: block; font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .discover-card .discover-name:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, 0.4); }
@@ -1348,9 +1349,7 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 .remove-files { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel); align-items: flex-start; }
 .remove-files.on { border-color: rgba(242, 109, 109, 0.45); background: rgba(242, 109, 109, 0.06); }
 .remove-folders { margin-top: 4px; font-family: Consolas, ui-monospace, monospace; word-break: break-all; }
-/* Discover cards: the watchlist tag sits bottom-left on the poster (top-right is the + Request button). */
-.discover-art .wl-menu-tag.discover-tag { top: auto; right: auto; bottom: 8px; left: 8px; }
-.discover-art:hover .wl-menu-tag.discover-tag, .discover-art:focus-within .wl-menu-tag.discover-tag { transform: translate(-3px, 1px); }
+/* Discover cards: the watchlist tag sits top-right on the poster, like Home (+ Request is bottom-right). */
+.discover-art:hover .wl-menu-tag.discover-tag, .discover-art:focus-within .wl-menu-tag.discover-tag { transform: translate(3px, -7px); }
 .discover-art:hover .wl-menu-tag.off .wl-tag { opacity: 1; }
-.discover-art .wl-menu-tag.discover-tag .wl-note { top: auto; bottom: calc(100% + 4px); left: 0; right: auto; }
-@media (prefers-reduced-motion: reduce) { .discover-art:hover .wl-menu-tag.discover-tag { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .discover-art:hover .wl-menu-tag.discover-tag, .discover-art:hover .discover-add { transform: none; } }
