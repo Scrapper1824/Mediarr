@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type MediaType } from '../api';
 
@@ -102,7 +103,7 @@ const YEARS = Array.from({ length: thisYear + 2 - 1950 + 1 }, (_, i) => String(t
 export function useGenres(type: MediaType) {
   return useQuery({
     queryKey: ['discover', 'genres', type],
-    queryFn: () => api.get<{ id: string; name: string }[]>(`/api/discover/genres?type=${type}`),
+    queryFn: () => api.get<{ id: string; name: string; group?: 'genre' | 'theme'; popular?: boolean }[]>(`/api/discover/genres?type=${type}`),
     staleTime: 24 * 3600_000,
   });
 }
@@ -142,6 +143,22 @@ export function FilterPanel({
   searching: boolean;
 }) {
   const genres = useGenres(type);
+  const [themeSearch, setThemeSearch] = useState('');
+  const allGenres = genres.data ?? [];
+  const plainGenres = allGenres.filter((g) => g.group !== 'theme');
+  const themes = allGenres.filter((g) => g.group === 'theme');
+  const term = themeSearch.trim().toLowerCase();
+  // Popular themes, any picked ones, and whatever matches what's typed.
+  const shownThemes = term
+    ? themes.filter((t) => t.name.toLowerCase().includes(term) || value.genres.includes(t.id))
+    : themes.filter((t) => t.popular || value.genres.includes(t.id));
+  // The search box covers genres too; picked ones always stay visible.
+  const shownGenres = term ? plainGenres.filter((g) => g.name.toLowerCase().includes(term) || value.genres.includes(g.id)) : plainGenres;
+  const chip = (g: { id: string; name: string }) => (
+    <button type="button" key={g.id} aria-pressed={value.genres.includes(g.id)} className={`filter-chip${value.genres.includes(g.id) ? ' on' : ''}`} onClick={() => toggle('genres', g.id)}>
+      {g.name}
+    </button>
+  );
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => onChange({ ...value, [k]: v });
   const toggle = (k: 'genres' | 'formats', v: string) => set(k, value[k].includes(v) ? value[k].filter((x) => x !== v) : [...value[k], v]);
   const n = activeCount(value);
@@ -220,15 +237,28 @@ export function FilterPanel({
           </Field>
         )}
         <Field label={value.genres.length > 1 ? 'Genres (has all of them)' : 'Genres'} wide>
+          {themes.length > 0 && (
+            <input
+              className="input filter-theme-search"
+              type="search"
+              placeholder={`Search all ${plainGenres.length + themes.length} genres and themes (isekai, sports, vampires…)`}
+              value={themeSearch}
+              onChange={(e) => setThemeSearch(e.target.value)}
+              aria-label="Search genres and themes"
+            />
+          )}
           <div className="filter-chips">
             {genres.isLoading && <span className="muted small">Loading genres…</span>}
             {genres.error && <span className="error-text small">{(genres.error as Error).message}</span>}
-            {genres.data?.map((g) => (
-              <button type="button" key={g.id} aria-pressed={value.genres.includes(g.id)} className={`filter-chip${value.genres.includes(g.id) ? ' on' : ''}`} onClick={() => toggle('genres', g.id)}>
-                {g.name}
-              </button>
-            ))}
+            {shownGenres.map(chip)}
           </div>
+          {shownThemes.length > 0 && (
+            <>
+              <span className="filter-sublabel">{term ? 'Themes' : 'Most used themes'}</span>
+              <div className="filter-chips">{shownThemes.map(chip)}</div>
+            </>
+          )}
+          {term && !shownGenres.length && !shownThemes.length && <span className="muted small">Nothing called “{themeSearch.trim()}”.</span>}
         </Field>
       </div>
       {type === 'anime' && value.audio && <p className="hint filter-note">Dub information comes from AnimeSchedule.</p>}

@@ -77,6 +77,12 @@ describe('anime (AniList)', () => {
     });
   });
 
+  it('themes (AniList tags like Isekai) go to the tag filter and must be a real part of the show', () => {
+    expect(animeFilterVariables(parseFilter({ genres: 'Action,tag:Isekai,tag:Reincarnation' }), 1)).toMatchObject({ genres: ['Action'], tags: ['Isekai', 'Reincarnation'], tagRank: 60 });
+    expect(animeFilterVariables(parseFilter({ genres: 'tag:Isekai' }), 1)).toMatchObject({ genres: null, tags: ['Isekai'] });
+    expect(animeFilterVariables(parseFilter({ genres: 'Drama' }), 1)).toMatchObject({ tags: null, tagRank: null });
+  });
+
   it('a season in one year, text search, and newest without unaired shows', () => {
     expect(animeFilterVariables(parseFilter({ season: 'FALL', yearFrom: '2025', yearTo: '2025' }), 1)).toMatchObject({ season: 'FALL', seasonYear: 2025 });
     expect(animeFilterVariables(parseFilter({ q: 'frieren' }), 1)).toMatchObject({ search: 'frieren', sort: ['SEARCH_MATCH', 'POPULARITY_DESC'] });

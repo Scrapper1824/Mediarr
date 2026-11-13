@@ -584,13 +584,61 @@ export interface FilteredAnime {
   episodes: number | null;
 }
 
-let genreList: { at: number; list: string[] } | null = null;
+let genreList: { at: number; list: AnimeGenre[] } | null = null;
 
-/** AniList's anime genres (cached for a day; the adult one is left out). */
-export async function animeGenres(): Promise<string[]> {
+export interface AnimeGenre {
+  /** A genre's name, or "tag:<name>" for a theme. */
+  id: string;
+  name: string;
+  group: 'genre' | 'theme';
+  /** Themes shown straight away (the rest are found by typing). */
+  popular?: boolean;
+}
+
+/** How many of the most-used themes are shown before you search (the rest are found by typing). */
+const TOP_THEMES = 40;
+/** AniList tag categories that describe how something is made, not what it's about. */
+const NOT_THEMES = new Set(['Technical']);
+/** Searchable, but not among the chips shown up front: they describe the cast, not what it's about. */
+const NOT_UP_FRONT_CATEGORIES = new Set(['Cast-Main Cast']);
+const NOT_UP_FRONT = new Set(['Heterosexual']);
+/** Used if counting fails (AniList busy): themes people commonly look for. */
+const FALLBACK_TOP = ['Shounen', 'Seinen', 'Isekai', 'Male Protagonist', 'Female Protagonist', 'School', 'Super Power', 'Magic', 'Reincarnation', 'Martial Arts'];
+
+/**
+ * Which themes are used most: counted over AniList's 200 most popular anime (a theme counts for a
+ * show when it's a real part of it, rank 60%+).
+ */
+async function themeUsage(): Promise<Map<string, number>> {
+  const page = (n: number) => `p${n}: Page(page: ${n}, perPage: 50) { media(type: ANIME, isAdult: false, sort: POPULARITY_DESC) { tags { name rank isMediaSpoiler } } }`;
+  const data = await gql<Record<string, { media: { tags: { name: string; rank: number; isMediaSpoiler: boolean }[] }[] }>>(
+    `query { ${[1, 2, 3, 4].map(page).join(' ')} }`,
+    {},
+  );
+  const count = new Map<string, number>();
+  for (const p of Object.values(data))
+    for (const m of p.media) for (const t of m.tags) if (t.rank >= 60 && !t.isMediaSpoiler) count.set(t.name, (count.get(t.name) ?? 0) + 1);
+  return count;
+}
+
+/** AniList's genres plus all its (non-adult) tags as themes, the most-used ones first; cached for a day. */
+export async function animeGenres(): Promise<AnimeGenre[]> {
   if (genreList && Date.now() - genreList.at < 24 * 3600_000) return genreList.list;
-  const data = await gql<{ GenreCollection: string[] }>('query { GenreCollection }', {});
-  genreList = { at: Date.now(), list: data.GenreCollection.filter((g) => g !== 'Hentai') };
+  const [data, usage] = await Promise.all([
+    gql<{ GenreCollection: string[]; MediaTagCollection: { name: string; category: string; isAdult: boolean }[] }>(
+      'query { GenreCollection MediaTagCollection { name category isAdult } }',
+      {},
+    ),
+    themeUsage().catch(() => null),
+  ]);
+  const genres: AnimeGenre[] = data.GenreCollection.filter((g) => g !== 'Hentai').map((g) => ({ id: g, name: g, group: 'genre' }));
+  const used = (name: string) => usage?.get(name) ?? (FALLBACK_TOP.includes(name) ? FALLBACK_TOP.length - FALLBACK_TOP.indexOf(name) : 0);
+  const themes = data.MediaTagCollection.filter((t) => !t.isAdult && !NOT_THEMES.has(t.category))
+    .map((t) => ({ id: `tag:${t.name}`, name: t.name, group: 'theme' as const, uses: NOT_UP_FRONT_CATEGORIES.has(t.category) || NOT_UP_FRONT.has(t.name) ? 0 : used(t.name) }))
+    // Most used first, then A–Z.
+    .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
+  const list: AnimeGenre[] = themes.map((t, i) => ({ id: t.id, name: t.name, group: t.group, popular: i < TOP_THEMES && t.uses > 0 }));
+  genreList = { at: Date.now(), list: [...genres, ...list] };
   return genreList.list;
 }
 
@@ -612,7 +660,10 @@ export function animeFilterVariables(f: AnimeFilter, page: number, perPage = 30)
     page,
     perPage,
     sort,
-    genres: f.genres.length ? f.genres : null,
+    genres: f.genres.filter((g) => !g.startsWith('tag:')).length ? f.genres.filter((g) => !g.startsWith('tag:')) : null,
+    // Themes (AniList tags) only count when they're a real part of the show, not a passing mention.
+    tags: f.genres.some((g) => g.startsWith('tag:')) ? f.genres.filter((g) => g.startsWith('tag:')).map((g) => g.slice(4)) : null,
+    tagRank: f.genres.some((g) => g.startsWith('tag:')) ? 60 : null,
     status: f.status ? ANIME_STATUS[f.status] : null,
     // "Newest" means newest that has started, unless you asked for upcoming ones.
     statusNot: !f.status && f.sort === 'newest' ? 'NOT_YET_RELEASED' : null,
@@ -633,6 +684,8 @@ export async function filterAnime(f: AnimeFilter, page: number, perPage = 30): P
   const ARGS: Record<string, [string, string]> = {
     sort: ['sort', '[MediaSort]'],
     genres: ['genre_in', '[String]'],
+    tags: ['tag_in', '[String]'],
+    tagRank: ['minimumTagRank', 'Int'],
     status: ['status', 'MediaStatus'],
     statusNot: ['status_not', 'MediaStatus'],
     formats: ['format_in', '[MediaFormat]'],

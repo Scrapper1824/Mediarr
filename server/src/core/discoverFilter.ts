@@ -60,7 +60,7 @@ export function parseFilter(q: Record<string, unknown>): DiscoverFilter {
   if (yearFrom && yearTo && yearFrom > yearTo) [yearFrom, yearTo] = [yearTo, yearFrom];
   const text = String(q.q ?? '').trim().slice(0, 200);
   return {
-    genres: list(q.genres).map((g) => g.slice(0, 40)),
+    genres: list(q.genres).map((g) => g.slice(0, 60)),
     yearFrom,
     yearTo,
     minRating: Number.isFinite(rating) && rating > 0 && rating <= 10 ? rating : null,
@@ -108,7 +108,7 @@ export async function discoverFiltered(type: MediaType, f: DiscoverFilter, page:
 }
 
 /** The genres to choose from on each tab. */
-export async function genresFor(type: MediaType): Promise<{ id: string; name: string }[]> {
-  if (type === 'anime') return (await animeGenres()).map((g) => ({ id: g, name: g }));
+export async function genresFor(type: MediaType): Promise<{ id: string; name: string; group?: 'genre' | 'theme'; popular?: boolean }[]> {
+  if (type === 'anime') return animeGenres();
   return tmdbGenres(type);
 }
