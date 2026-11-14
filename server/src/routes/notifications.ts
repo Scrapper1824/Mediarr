@@ -32,7 +32,8 @@ export async function notificationRoutes(app: FastifyInstance) {
     const media = Number.isInteger(mediaId)
       ? (db.prepare('SELECT adult FROM media WHERE id = ?').get(mediaId) as { adult: number } | undefined)
       : undefined;
-    if (!media) return reply.code(404).send({ error: 'Not found' });
+    // An 18+ title you may not see doesn't exist as far as you're concerned.
+    if (!media || (media.adult && !req.user!.allow_adult)) return reply.code(404).send({ error: 'Not found' });
     const rows = db
       .prepare('SELECT id, username FROM users WHERE id != ? AND (? = 0 OR allow_adult = 1) ORDER BY username COLLATE NOCASE')
       .all(req.user!.id, media.adult ? 1 : 0);

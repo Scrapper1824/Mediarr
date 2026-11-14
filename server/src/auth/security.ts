@@ -1,15 +1,39 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ABSOLUTE_MS, SESSION_COOKIE, userForSession, type UserRow } from './sessions.js';
+import { GUEST_COOKIE } from '../party/guest.js';
+import { partyForGuestToken } from '../party/store.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     user: UserRow | null;
     sessionToken: string | undefined;
+    /** A watch-party guest (no account), only when nobody is signed in. */
+    guest: { partyId: string; guestId: number; name: string } | null;
   }
 }
 
 /** The only API routes reachable without signing in. Everything else under /api needs a session. */
-export const PUBLIC_API = new Set(['GET /api/auth/status', 'POST /api/auth/login', 'POST /api/auth/setup']);
+export const PUBLIC_API = new Set(['GET /api/auth/status', 'POST /api/auth/login', 'POST /api/auth/setup', 'POST /api/party/:id/guest-join']);
+
+/**
+ * All a watch-party guest (no account, guest cookie) may reach: their party and its current title's stream.
+ * The routes themselves check that the title is the party's and that the party is the guest's own.
+ */
+export const GUEST_ALLOWED = new Set([
+  'GET /api/play/:kind/:id/info',
+  'POST /api/play/:kind/:id/start',
+  'GET /api/play/direct/:kind/:id',
+  'GET /api/play/hls/:session/:file',
+  'DELETE /api/play/hls/:session',
+  'GET /api/play/:kind/:id/subtitle/:track',
+  'GET /api/play/:kind/:id/fonts',
+  'GET /api/play/:kind/:id/fonts/:name',
+  'GET /api/play/:kind/:id/trickplay/:sheet',
+  'GET /api/play/:kind/:id/extras',
+  'GET /api/party/:id',
+  'GET /api/party/:id/socket',
+  'POST /api/party/:id/leave',
+]);
 
 /**
  * What regular (non-admin) users may do: browse, request, search, choose bundles, see the queue/history,
@@ -51,11 +75,19 @@ export const USER_ALLOWED = new Set([
   'GET /api/queue',
   'GET /api/history',
   'GET /api/search-events',
-  // Watchlists: each user manages only their own (the routes use req.user, never an id from the client).
+  // Notifications and watch parties (any account may start, invite and make guest links; only the host ends).
   'GET /api/notifications',
   'POST /api/notifications/read',
   'DELETE /api/notifications/:id',
   'GET /api/party/invitees',
+  'POST /api/party',
+  'GET /api/party/:id',
+  'GET /api/party/:id/socket',
+  'POST /api/party/:id/invite',
+  'POST /api/party/:id/guest-link',
+  'POST /api/party/:id/end',
+  'POST /api/party/:id/leave',
+  // Watchlists: each user manages only their own (the routes use req.user, never an id from the client).
   'GET /api/watchlist/links',
   'POST /api/watchlist/simkl/start',
   'POST /api/watchlist/simkl/poll',
@@ -114,7 +146,7 @@ export function parseCookies(header: string | undefined): Record<string, string>
   return out;
 }
 
-const isHttps = (req: FastifyRequest) => process.env.COOKIE_SECURE === 'true' || req.protocol === 'https';
+export const isHttps = (req: FastifyRequest) => process.env.COOKIE_SECURE === 'true' || req.protocol === 'https';
 
 export function setSessionCookie(req: FastifyRequest, reply: FastifyReply, token: string) {
   const attrs = [`${SESSION_COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${Math.floor(ABSOLUTE_MS / 1000)}`];
@@ -162,11 +194,20 @@ const CSP = [
 export function registerSecurity(app: FastifyInstance) {
   app.decorateRequest('user', null);
   app.decorateRequest('sessionToken', undefined);
+  app.decorateRequest('guest', null);
 
   app.addHook('onRequest', async (req, reply) => {
-    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+    const cookies = parseCookies(req.headers.cookie);
+    const token = cookies[SESSION_COOKIE];
     req.sessionToken = token;
     req.user = userForSession(token);
+    req.guest = null;
+    // A signed-in user's session wins: a guest cookie is then ignored entirely. Checked on every request,
+    // so a guest's access (streams included) stops the moment their party ends or they leave it.
+    if (!req.user && cookies[GUEST_COOKIE]) {
+      const g = partyForGuestToken(cookies[GUEST_COOKIE]);
+      if (g) req.guest = { partyId: g.party.id, guestId: g.guestId, name: g.name };
+    }
 
     // Decide by the route that actually matched (the router decodes URLs, so "/%61pi/media" reaches
     // /api/media), and also by the decoded path for unmatched requests. Anything API-like needs a session.
@@ -191,8 +232,9 @@ export function registerSecurity(app: FastifyInstance) {
 
     const key = `${req.method} ${path}`;
     if (!req.user) {
-      if (!PUBLIC_API.has(key)) return reply.code(401).send({ error: 'Not signed in' });
-      return;
+      if (PUBLIC_API.has(key)) return;
+      if (req.guest && GUEST_ALLOWED.has(key)) return;
+      return reply.code(401).send({ error: 'Not signed in' });
     }
     if (req.user.role !== 'admin' && !USER_ALLOWED.has(key)) {
       return reply.code(403).send({ error: 'Only an admin can do that.' });

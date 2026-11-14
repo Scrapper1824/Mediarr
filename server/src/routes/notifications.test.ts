@@ -121,7 +121,10 @@ describe('party invitees', () => {
     const forPlain = (await call(viewer.cookie, 'GET', `/api/party/invitees?mediaId=${plain}`)).json();
     expect(forPlain.map((u: { username: string }) => u.username)).toEqual(['Adult', 'boss']);
 
-    // boss (allow_adult off) asks about the 18+ title: only the NSFW-allowed account is listed.
+    // The 18+ title: only NSFW-allowed accounts are listed, and only to someone allowed to see it.
+    expect((await call(boss, 'GET', `/api/party/invitees?mediaId=${nsfw}`)).statusCode).toBe(404);
+    expect((await call(viewer.cookie, 'GET', `/api/party/invitees?mediaId=${nsfw}`)).statusCode).toBe(404);
+    db.prepare('UPDATE users SET allow_adult = 1 WHERE username = ?').run('boss');
     const forNsfw = (await call(boss, 'GET', `/api/party/invitees?mediaId=${nsfw}`)).json();
     expect(forNsfw).toEqual([{ id: adultFan.id, username: 'Adult' }]);
 

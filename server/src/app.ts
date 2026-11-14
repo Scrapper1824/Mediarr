@@ -7,6 +7,9 @@ import { registerSecurity } from './auth/security.js';
 import { userRoutes } from './auth/users.js';
 import { apiRoutes } from './routes/api.js';
 import { notificationRoutes } from './routes/notifications.js';
+import { setPartyActiveCheck } from './core/notifications.js';
+import { partyRoutes } from './party/routes.js';
+import { isPartyActive, startParties, stopParties } from './party/store.js';
 import { watchlistRoutes } from './routes/watchlist.js';
 import { playRoutes } from './routes/play.js';
 import { usePlaybackDataDir } from './playback/ffmpeg.js';
@@ -58,6 +61,10 @@ export async function buildApp(opts: {
   usePlaybackDataDir(opts.dataDir);
   startPlayback();
   app.addHook('onClose', async () => stopPlayback());
+  // Watch parties live in memory; invites show "Ended" once theirs is gone.
+  setPartyActiveCheck(isPartyActive);
+  startParties();
+  app.addHook('onClose', async () => stopParties());
 
   // Must come first: it guards every route registered below.
   registerSecurity(app);
@@ -66,6 +73,7 @@ export async function buildApp(opts: {
   await app.register(apiRoutes);
   await app.register(watchlistRoutes);
   await app.register(notificationRoutes);
+  await app.register(partyRoutes);
   await app.register(playRoutes);
 
   const webDist = opts.webDist === undefined ? path.resolve(import.meta.dirname, '../../web/dist') : opts.webDist;

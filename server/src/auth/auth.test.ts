@@ -10,7 +10,7 @@ import { resetRateLimits } from './rateLimit.js';
 import { prepareSetupCode } from './routes.js';
 import { base32Encode, codeAt, currentCounter, verifyCode } from './totp.js';
 
-const PUBLIC = new Set(['GET /api/auth/status', 'POST /api/auth/login', 'POST /api/auth/setup']);
+const PUBLIC = new Set(['GET /api/auth/status', 'POST /api/auth/login', 'POST /api/auth/setup', 'POST /api/party/:id/guest-join']);
 const CSRF = { 'x-requested-with': 'mediarr' };
 const PASSWORD = 'correct horse battery staple';
 

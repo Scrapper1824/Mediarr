@@ -14,6 +14,7 @@ import { queueMediaWork, workPending } from '../playback/jobs.js';
 import { getSegments } from '../playback/segments.js';
 import { trickplayManifest, trickplaySheet } from '../playback/trickplay.js';
 import { inTitleDirs } from '../core/rootFolders.js';
+import { getParty, isPartyMember } from '../party/store.js';
 
 type Kind = 'movie' | 'episode';
 
@@ -100,7 +101,7 @@ const parseCaps = (raw: unknown): ClientCaps =>
 
 /** The library title a playback route is about (an episode belongs to its title), if any. */
 function mediaForRoute(route: string, params: Record<string, string | undefined>): MediaRow | undefined {
-  if (route.startsWith('/api/play/:kind/:id')) {
+  if (route.startsWith('/api/play/:kind/:id') || route.startsWith('/api/play/direct/:kind/:id')) {
     const id = Number(params.id);
     if (params.kind === 'movie') return getMedia(id);
     const ep = db.prepare('SELECT media_id FROM episodes WHERE id = ?').get(id) as { media_id: number } | undefined;
@@ -111,12 +112,33 @@ function mediaForRoute(route: string, params: Record<string, string | undefined>
   return undefined;
 }
 
+/** Who owns playback sessions: a user's id, or -guestId for a watch-party guest. */
+const viewer = (req: FastifyRequest) => req.user?.id ?? -req.guest!.guestId;
+
+/** A stream, only for its owner; a guest's only while it is of their party's current title. */
+function ownSession(req: FastifyRequest, id: string) {
+  const s = getSession(id, viewer(req));
+  if (!s || !req.guest) return s;
+  const t = getParty(req.guest.partyId)?.title;
+  return t && s.title === `${t.kind}:${t.id}` ? s : null;
+}
+
 /** Watching: every signed-in user can play titles that are in the library. */
 export async function playRoutes(app: FastifyInstance) {
-  // 18+ titles can only be played by users allowed to see them.
   app.addHook('preHandler', async (req, reply) => {
+    const params = req.params as Record<string, string | undefined>;
+    if (req.guest) {
+      // A guest reaches only their party's current title (the stream routes check theirs by session).
+      const t = getParty(req.guest.partyId)?.title;
+      if ('kind' in params || 'id' in params) {
+        if (!t || params.kind !== t.kind || Number(params.id) !== t.id) return reply.code(404).send({ error: 'Nothing to play here yet' });
+        if (mediaForRoute(req.routeOptions.url ?? '', params)?.adult) return reply.code(404).send({ error: 'Nothing to play here yet' });
+      }
+      return;
+    }
+    // 18+ titles can only be played by users allowed to see them.
     if (!req.user || req.user.allow_adult) return;
-    const m = mediaForRoute(req.routeOptions.url ?? '', req.params as Record<string, string | undefined>);
+    const m = mediaForRoute(req.routeOptions.url ?? '', params);
     if (m?.adult) return reply.code(404).send({ error: 'Nothing to play here yet' });
   });
 
@@ -124,7 +146,8 @@ export async function playRoutes(app: FastifyInstance) {
     const p = playable(req.params.kind, req.params.id);
     requireFfmpeg();
     const probe = await probeFile(p.file);
-    const progress = progressOf(req.user!.id, p.media.id, p.episode?.id ?? 0);
+    // Guests have no progress; the party decides where everyone is and which episode comes next.
+    const progress = req.user ? progressOf(req.user.id, p.media.id, p.episode?.id ?? 0) : { position: 0, watched: false };
     // About to be watched: its thumbnails and its season's intros go to the front of the queue.
     queueMediaWork(p.media.id, { urgent: true, focusEpisode: p.episode?.id ?? null });
     const next = nextEpisode(p);
@@ -146,8 +169,8 @@ export async function playRoutes(app: FastifyInstance) {
       trickplay: getSettings().trickplay ? trickplayManifest(p.file) : null,
       pending: workPending(p.file, p.media.id, p.episode?.season ?? null),
       position: progress.watched ? 0 : progress.position,
-      next: episodeLink(next),
-      prev: episodeLink(episodeAround(p, -1)),
+      next: req.guest ? null : episodeLink(next),
+      prev: req.guest ? null : episodeLink(episodeAround(p, -1)),
       remote: !isLocalAddress(req.ip),
     };
   });
@@ -173,8 +196,9 @@ export async function playRoutes(app: FastifyInstance) {
       if (decision.mode === 'direct') return { mode: 'direct', url: `/api/play/direct/${p.kind}/${p.id}`, reason: decision.reason };
       const info = await ffmpegInfo();
       const startAt = Math.min(Math.max(0, Number(req.body?.startAt) || 0), Math.max(0, probe.duration - 1));
+      const owner = viewer(req);
       const s = createSession({
-        userId: req.user!.id,
+        userId: owner,
         title: `${p.kind}:${p.id}`,
         file: p.file,
         ffmpeg: tools.ffmpeg,
@@ -183,6 +207,8 @@ export async function playRoutes(app: FastifyInstance) {
         encoder: info.encoder,
         startAt,
         starts,
+        // Watch-party viewers skip the conversion limit (a party is deliberate; everyone in it plays).
+        exempt: isPartyMember(owner, { kind: p.kind, id: p.id }),
       });
       return {
         mode: 'hls',
@@ -203,7 +229,7 @@ export async function playRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Params: { session: string; file: string } }>('/api/play/hls/:session/:file', async (req, reply) => {
-    const s = getSession(req.params.session, req.user!.id);
+    const s = ownSession(req, req.params.session);
     if (!s) return reply.code(404).send({ error: 'This stream has ended. Press play again.' });
     if (req.params.file === 'main.m3u8') {
       reply.header('Content-Type', 'application/vnd.apple.mpegurl');
@@ -218,7 +244,7 @@ export async function playRoutes(app: FastifyInstance) {
   });
 
   app.delete<{ Params: { session: string } }>('/api/play/hls/:session', async (req) => {
-    if (getSession(req.params.session, req.user!.id)) endSession(req.params.session);
+    if (ownSession(req, req.params.session)) endSession(req.params.session);
     return { ok: true };
   });
 
