@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
+import fastifyWebsocket from '@fastify/websocket';
 import { authRoutes } from './auth/routes.js';
 import { registerSecurity } from './auth/security.js';
 import { userRoutes } from './auth/users.js';
@@ -9,6 +10,7 @@ import { apiRoutes } from './routes/api.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { setPartyActiveCheck } from './core/notifications.js';
 import { partyRoutes } from './party/routes.js';
+import { partySocketRoutes } from './party/socket.js';
 import { isPartyActive, startParties, stopParties } from './party/store.js';
 import { watchlistRoutes } from './routes/watchlist.js';
 import { playRoutes } from './routes/play.js';
@@ -66,7 +68,11 @@ export async function buildApp(opts: {
   startParties();
   app.addHook('onClose', async () => stopParties());
 
-  // Must come first: it guards every route registered below.
+  // Websockets (the watch-party sync channel). It adds no routes, only hooks, and its hook that marks an
+  // upgrade request must run before the security check, so an upgrade refused there is closed, not left open.
+  // Messages are tiny; anything bigger is refused.
+  await app.register(fastifyWebsocket, { options: { maxPayload: 4096 } });
+  // Must come before any route: it guards every route registered below.
   registerSecurity(app);
   await app.register(authRoutes, { dataDir: opts.dataDir });
   await app.register(userRoutes);
@@ -74,6 +80,7 @@ export async function buildApp(opts: {
   await app.register(watchlistRoutes);
   await app.register(notificationRoutes);
   await app.register(partyRoutes);
+  await app.register(partySocketRoutes);
   await app.register(playRoutes);
 
   const webDist = opts.webDist === undefined ? path.resolve(import.meta.dirname, '../../web/dist') : opts.webDist;

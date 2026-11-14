@@ -135,8 +135,10 @@ export function setBuffering(
     m.buffering = null;
     return resumeIfReady(p, now, leadMs);
   }
+  // Only someone with an open socket can hold the party up.
+  if (m.connected === 0) return null;
   if (m.buffering === null) m.buffering = now;
-  if (m.connected > 0 && p.state.playing) {
+  if (p.state.playing) {
     p.resumeAfterBuffer = true;
     return set(p, false, positionAt(p.state, now), now);
   }
@@ -180,8 +182,9 @@ export function removeMember(p: Party, key: string, now: number): void {
 
 export function disconnect(p: Party, key: string, now: number): void {
   const m = p.members.get(key);
-  if (!m) return;
-  m.connected = Math.max(0, m.connected - 1);
+  // Already without a socket: nothing changes (a stray extra close must not move emptySince).
+  if (!m || m.connected === 0) return;
+  m.connected -= 1;
   if (m.connected === 0) m.buffering = null;
   if (![...p.members.values()].some((x) => x.connected > 0)) p.emptySince = now;
 }
@@ -190,11 +193,15 @@ export function shouldEnd(p: Party, now: number): boolean {
   return p.ended || (p.emptySince !== null && now - p.emptySince > EMPTY_END_MS);
 }
 
-/** Moves to another title (next episode): position 0, playing, buffering cleared. */
+/**
+ * Moves to another title (next episode) so that everyone starts it together: paused at 0, every connected
+ * member counts as buffering until they report the new episode loaded (`setBuffering(false)`), then play
+ * resumes with the usual lead. Anyone stuck loading is skipped after SKIP_BUFFERING_MS (tickBuffering).
+ */
 export function advance(p: Party, mediaId: number, title: Title, now: number): PlayState {
   p.mediaId = mediaId;
   p.title = title;
-  for (const m of p.members.values()) m.buffering = null;
-  p.resumeAfterBuffer = false;
-  return set(p, true, 0, now);
+  for (const m of p.members.values()) m.buffering = m.connected > 0 ? now : null;
+  p.resumeAfterBuffer = true;
+  return set(p, false, 0, now);
 }

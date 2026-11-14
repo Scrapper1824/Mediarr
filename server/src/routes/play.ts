@@ -14,7 +14,7 @@ import { queueMediaWork, workPending } from '../playback/jobs.js';
 import { getSegments } from '../playback/segments.js';
 import { trickplayManifest, trickplaySheet } from '../playback/trickplay.js';
 import { inTitleDirs } from '../core/rootFolders.js';
-import { getParty, isPartyMember } from '../party/store.js';
+import { getParty, isPartyMember, onPartyEnded, onPartyLeft } from '../party/store.js';
 
 type Kind = 'movie' | 'episode';
 
@@ -123,8 +123,31 @@ function ownSession(req: FastifyRequest, id: string) {
   return t && s.title === `${t.kind}:${t.id}` ? s : null;
 }
 
+/**
+ * Open direct (whole-file) responses of each party guest (by guest id). A long download outlives the
+ * per-request guest check, so these are cut the moment the guest's party ends or they leave it.
+ */
+const guestDirect = new Map<number, Set<FastifyReply['raw']>>();
+
+function cutGuestStreams(guestId: number) {
+  const open = guestDirect.get(guestId);
+  guestDirect.delete(guestId);
+  for (const raw of open ?? []) raw.destroy();
+}
+
 /** Watching: every signed-in user can play titles that are in the library. */
 export async function playRoutes(app: FastifyInstance) {
+  const offEnded = onPartyEnded((p) => {
+    for (const m of p.members.values()) if (m.principal.type === 'guest') cutGuestStreams(m.principal.guestId);
+  });
+  const offLeft = onPartyLeft((_p, key) => {
+    if (key.startsWith('g:')) cutGuestStreams(Number(key.slice(2)));
+  });
+  app.addHook('onClose', async () => {
+    offEnded();
+    offLeft();
+  });
+
   app.addHook('preHandler', async (req, reply) => {
     const params = req.params as Record<string, string | undefined>;
     if (req.guest) {
@@ -225,6 +248,17 @@ export async function playRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { kind: string; id: string } }>('/api/play/direct/:kind/:id', async (req, reply) => {
     const p = playable(req.params.kind, req.params.id);
+    if (req.guest) {
+      const guestId = req.guest.guestId;
+      let open = guestDirect.get(guestId);
+      if (!open) guestDirect.set(guestId, (open = new Set()));
+      const raw = reply.raw;
+      open.add(raw);
+      raw.once('close', () => {
+        open.delete(raw);
+        if (!open.size && guestDirect.get(guestId) === open) guestDirect.delete(guestId);
+      });
+    }
     return sendRange(req, reply, p.file);
   });
 

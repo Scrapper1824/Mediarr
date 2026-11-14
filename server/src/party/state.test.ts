@@ -134,16 +134,50 @@ describe('party state', () => {
     expect(p.emptySince).toBeNull();
   });
 
-  it('advance clears buffering and resets position', () => {
+  it('advance loads the next title paused at 0 and waits for every connected member to be ready', () => {
     const p = make(40);
+    const offline: Principal = { type: 'guest', guestId: 9, name: 'Away' };
+    addMember(p, offline);
     applyCommand(p, { type: 'play' }, 1000, 0);
-    setBuffering(p, principalKey(host), true, 2000, 0);
     const s = advance(p, 101, { kind: 'episode', id: 101 }, 3000);
     expect(p.title).toEqual({ kind: 'episode', id: 101 });
     expect(p.mediaId).toBe(101);
-    expect(s).toMatchObject({ playing: true, position: 0 });
-    expect([...p.members.values()].some((m) => m.buffering !== null)).toBe(false);
-    expect(p.resumeAfterBuffer).toBe(false);
+    expect(s).toMatchObject({ playing: false, position: 0, at: 3000 });
+    // Connected members load the new episode first; a member without a socket isn't waited for.
+    expect(p.members.get(principalKey(host))?.buffering).toBe(3000);
+    expect(p.members.get(principalKey(guest))?.buffering).toBe(3000);
+    expect(p.members.get(principalKey(offline))?.buffering).toBeNull();
+    expect(p.resumeAfterBuffer).toBe(true);
+    expect(setBuffering(p, principalKey(host), false, 3500, 200)).toBeNull();
+    const go = setBuffering(p, principalKey(guest), false, 4000, 200);
+    expect(go).toMatchObject({ playing: true, position: 0, at: 4200 });
+  });
+
+  it('after advance a member who never gets ready is skipped after 20 s', () => {
+    const p = make(40);
+    advance(p, 101, { kind: 'episode', id: 101 }, 3000);
+    setBuffering(p, principalKey(host), false, 3500, 0);
+    expect(tickBuffering(p, 23_000, 100)).toBeNull();
+    expect(tickBuffering(p, 23_001, 100)).toMatchObject({ playing: true, position: 0, at: 23_101 });
+  });
+
+  it('a second disconnect of a member already at 0 sockets changes nothing', () => {
+    const p = make();
+    disconnect(p, principalKey(guest), 100);
+    disconnect(p, principalKey(host), 200);
+    expect(p.emptySince).toBe(200);
+    disconnect(p, principalKey(host), 900);
+    expect(p.emptySince).toBe(200);
+    expect(p.members.get(principalKey(host))?.connected).toBe(0);
+  });
+
+  it('a member without a socket can’t start buffering', () => {
+    const p = make();
+    applyCommand(p, { type: 'play' }, 1000, 0);
+    disconnect(p, principalKey(guest), 1500);
+    expect(setBuffering(p, principalKey(guest), true, 2000, 0)).toBeNull();
+    expect(p.members.get(principalKey(guest))?.buffering).toBeNull();
+    expect(p.state.playing).toBe(true);
   });
 
   it('viewerId never collides', () => {

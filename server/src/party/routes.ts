@@ -34,8 +34,8 @@ const mayWatch = (user: UserRow, media: MediaRow) => !media.adult || !!user.allo
 const subtitleOf = (e: EpisodeRow | null) =>
   e ? `S${String(e.season).padStart(2, '0')}E${String(e.episode).padStart(2, '0')}${e.title ? ` · ${e.title}` : ''}` : null;
 
-/** A party the signed-in user may see (it exists and they may watch its title). */
-function partyForUser(req: FastifyRequest, id: string, includeEnded = false): { party: Party; r: Resolved } | null {
+/** A party the signed-in user may see (it exists and they may watch its title). The socket uses it too. */
+export function partyForUser(req: FastifyRequest, id: string, includeEnded = false): { party: Party; r: Resolved } | null {
   const party = includeEnded ? findParty(id) : getParty(id);
   const r = party ? resolve(party.title) : null;
   if (!party || !r || !req.user || !mayWatch(req.user, r.media)) return null;

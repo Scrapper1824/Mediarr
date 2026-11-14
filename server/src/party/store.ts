@@ -17,6 +17,7 @@ const inviteCodes = new Map<string, string>();
 /** Accounts already invited to each party (an invite isn't sent twice). */
 const invitedUsers = new Map<string, Set<number>>();
 const endedListeners: ((p: Party) => void)[] = [];
+const leftListeners: ((p: Party, key: string) => void)[] = [];
 /** Guest ids are unique across parties: they're playback session owners (-guestId). */
 let guestSeq = 0;
 
@@ -52,6 +53,25 @@ export function onPartyEnded(cb: (p: Party) => void): () => void {
   };
 }
 
+/** Called with each member who leaves a party (their socket and open streams are cut). */
+export function onPartyLeft(cb: (p: Party, key: string) => void): () => void {
+  leftListeners.push(cb);
+  return () => {
+    const i = leftListeners.indexOf(cb);
+    if (i >= 0) leftListeners.splice(i, 1);
+  };
+}
+
+function tell<A extends unknown[]>(listeners: ((...a: A) => void)[], ...args: A) {
+  for (const cb of [...listeners]) {
+    try {
+      cb(...args);
+    } catch (err) {
+      console.warn('[party] listener failed', err);
+    }
+  }
+}
+
 /** Ends a party for everyone: its streams stop and every guest cookie for it stops working. */
 export function endParty(id: string): void {
   const p = getParty(id);
@@ -66,20 +86,16 @@ export function endParty(id: string): void {
     if (m.principal.type === 'guest') endUserSessions(viewerId(m.principal));
     else endUserSessions(viewerId(m.principal), titleKey(p.title));
   }
-  for (const cb of [...endedListeners]) {
-    try {
-      cb(p);
-    } catch (err) {
-      console.warn('[party] ended listener failed', err);
-    }
-  }
+  tell(endedListeners, p);
 }
 
 /** Takes someone out of a party and stops their stream of it. */
 export function leaveParty(p: Party, principal: Principal): void {
-  removeMember(p, principalKey(principal), Date.now());
+  const key = principalKey(principal);
+  removeMember(p, key, Date.now());
   if (principal.type === 'guest') endUserSessions(viewerId(principal));
   else endUserSessions(viewerId(principal), titleKey(p.title));
+  tell(leftListeners, p, key);
 }
 
 /** The party's guest invite code, made on first use. */

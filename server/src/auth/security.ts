@@ -170,6 +170,18 @@ function hostOf(url: string | undefined): string | null {
   }
 }
 
+/**
+ * True when a request comes from another site: its Origin (or Referer) names a different host than the one
+ * it was sent to (Host, or X-Forwarded-Host behind a proxy). A request naming no origin passes, unless
+ * `requireOrigin` (websocket upgrades: browsers always send Origin there).
+ */
+export function crossSite(req: FastifyRequest, requireOrigin = false): boolean {
+  const origin = hostOf(req.headers.origin as string | undefined) ?? hostOf(req.headers.referer);
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim().toLowerCase();
+  if (!origin || !host) return requireOrigin;
+  return origin !== host;
+}
+
 const CSP = [
   "default-src 'self'",
   // 'wasm-unsafe-eval' lets the subtitle renderer (libass compiled to WebAssembly) run; inline scripts stay blocked.
@@ -225,9 +237,7 @@ export function registerSecurity(app: FastifyInstance) {
     // Cross-site request protection for anything that changes state.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       if (req.headers[CSRF_HEADER] !== CSRF_VALUE) return reply.code(403).send({ error: 'Missing request header' });
-      const origin = hostOf(req.headers.origin as string | undefined) ?? hostOf(req.headers.referer);
-      const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim().toLowerCase();
-      if (origin && host && origin !== host) return reply.code(403).send({ error: 'Cross-site request blocked' });
+      if (crossSite(req)) return reply.code(403).send({ error: 'Cross-site request blocked' });
     }
 
     const key = `${req.method} ${path}`;
