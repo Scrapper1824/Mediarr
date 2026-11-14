@@ -1,4 +1,4 @@
-import { db, getEpisodes, getMedia, type EpisodeRow, type MediaRow, type MediaType } from '../db.js';
+import { db, getEpisodes, getMedia, now, type EpisodeRow, type MediaRow, type MediaType } from '../db.js';
 
 /**
  * The Home page: what you're watching and what's downloaded, across movies, shows and anime.
@@ -113,8 +113,17 @@ export function continueWatching(userId: number, limit = 20, adult = false): Con
     .all(userId) as unknown as ProgressRow[];
   const seen = new Set<number>();
   const items: ContinueItem[] = [];
+  // Taken out of the row by hand: stays out until there's newer progress than that.
+  const hidden = new Map(
+    (db.prepare('SELECT media_id, hidden_at FROM continue_hidden WHERE user_id = ?').all(userId) as { media_id: number; hidden_at: string }[]).map((h) => [h.media_id, h.hidden_at]),
+  );
   for (const r of rows) {
     if (seen.has(r.media_id)) continue;
+    const hiddenAt = hidden.get(r.media_id);
+    if (hiddenAt && r.updated_at <= hiddenAt) {
+      seen.add(r.media_id); // rows are newest first, so this title's later rows are older still
+      continue;
+    }
     const media = getMedia(r.media_id);
     if (!media || (media.adult && !adult)) continue;
     seen.add(r.media_id);
@@ -144,6 +153,15 @@ export function continueWatching(userId: number, limit = 20, adult = false): Con
     if (items.length >= limit) break;
   }
   return items;
+}
+
+/** Takes a title out of the user's Continue watching (their progress is kept). False when there's no such title. */
+export function hideFromContinue(userId: number, mediaId: number): boolean {
+  if (!getMedia(mediaId)) return false;
+  db.prepare(
+    'INSERT INTO continue_hidden (user_id, media_id, hidden_at) VALUES (?, ?, ?) ON CONFLICT(user_id, media_id) DO UPDATE SET hidden_at = excluded.hidden_at',
+  ).run(userId, mediaId, now());
+  return true;
 }
 
 export function progressOf(userId: number, mediaId: number, episodeId: number) {

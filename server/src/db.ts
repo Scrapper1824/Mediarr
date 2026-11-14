@@ -290,6 +290,13 @@ CREATE TABLE IF NOT EXISTS notifications (
   read_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id);
+-- Titles a user took out of their Continue watching; they come back once watched again after that.
+CREATE TABLE IF NOT EXISTS continue_hidden (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  hidden_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, media_id)
+);
 CREATE INDEX IF NOT EXISTS idx_episodes_media ON episodes(media_id);
 CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
 -- Home's "recently added" looks up each title's newest import; without this it reads all of history per title.

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { continueWatching, homeFor, playableEpisodes, progressOf } from '../core/home.js';
+import { continueWatching, hideFromContinue, homeFor, playableEpisodes, progressOf } from '../core/home.js';
 import { isInside } from '../core/importer.js';
 import { db, getMedia, now, type EpisodeRow, type MediaRow } from '../db.js';
 import { getSettings } from '../settings.js';
@@ -409,6 +409,13 @@ export async function playRoutes(app: FastifyInstance) {
 
   /** Continue Watching (started, not finished) and Next Up (the episode after the last one finished). */
   app.get('/api/continue', async (req) => continueWatching(req.user!.id, 20, !!req.user!.allow_adult));
+  /** Remove from Continue watching (only for you; watching it again brings it back). */
+  app.delete<{ Params: { mediaId: string } }>('/api/continue/:mediaId', async (req, reply) => {
+    const id = Number(req.params.mediaId);
+    if (!Number.isInteger(id) || id <= 0) return reply.code(400).send({ error: 'Bad request' });
+    if (!hideFromContinue(req.user!.id, id)) return reply.code(404).send({ error: 'Not found' });
+    return { ok: true };
+  });
 
   /** The Home page: banner, continue watching, recently added, and what is downloaded per type (your own progress only). */
   app.get('/api/home', async (req) => homeFor(req.user!.id, !!req.user!.allow_adult));

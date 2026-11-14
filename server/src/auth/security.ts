@@ -112,6 +112,7 @@ export const USER_ALLOWED = new Set([
   'GET /api/play/progress/:mediaId',
   'PUT /api/media/:id/watched',
   'GET /api/continue',
+  'DELETE /api/continue/:mediaId',
   'GET /api/home',
 ]);
 

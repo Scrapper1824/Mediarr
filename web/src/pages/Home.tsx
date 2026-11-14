@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, watchId, type SearchResult } from '../api';
 import { cardStill, shortEp, type ContinueItem, type HomeData, type HomeTitle, type PlayableTitle } from '../home';
 import HomeHero from '../components/HomeHero';
@@ -20,7 +20,7 @@ const infoFor = (t: HomeTitle): SearchResult => ({
   libraryId: t.mediaId,
 });
 
-function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void }) {
+function ContinueCard({ item, onInfo, onRemove }: { item: ContinueItem; onInfo: () => void; onRemove: () => void }) {
   // The episode's own still first, then the show's backdrop, then its poster (blurred).
   const wide = item.still ? cardStill(item.still) : item.backdrop;
   const art = wide ?? item.poster;
@@ -29,6 +29,7 @@ function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void
     : [item.label ? shortEp(item.label) : null, item.minutesLeft ? `${item.minutesLeft} min left` : null].filter(Boolean).join(' · ');
   return (
     <div className="home-card">
+      <div className="home-thumb-wrap">
       <Link className="home-thumb-link" to={`/watch/${item.kind}/${item.id}`} aria-label={`${item.upNext ? 'Play' : 'Resume'} ${item.title}${item.label ? ` ${shortEp(item.label)}` : ''}`}>
         <div className={`home-thumb${wide ? '' : ' from-poster'}`}>
           {art ? <img src={art} alt="" loading="lazy" decoding="async" /> : <div className="home-thumb-fallback">{item.title.slice(0, 1)}</div>}
@@ -43,6 +44,10 @@ function ContinueCard({ item, onInfo }: { item: ContinueItem; onInfo: () => void
           )}
         </div>
       </Link>
+      <button type="button" className="home-remove" aria-label={`Remove ${item.title} from Continue watching`} title="Remove from Continue watching" onClick={onRemove}>
+        ×
+      </button>
+      </div>
       <div className="home-card-text">
         <div className="home-card-lines">
           <Link className="home-card-title" to={`/media/${item.mediaId}`} title={`Open ${item.title}`}>
@@ -107,6 +112,19 @@ export default function Home() {
   const [info, setInfo] = useState<SearchResult | null>(null);
   const watchTag = useWatchTags();
   const d = q.data;
+  const qc = useQueryClient();
+  // Gone from the row at once; Home is fetched again afterwards (the banner may change too).
+  const remove = useMutation({
+    mutationFn: (mediaId: number) => api.del(`/api/continue/${mediaId}`),
+    onMutate: async (mediaId) => {
+      await qc.cancelQueries({ queryKey: ['home'] });
+      const before = qc.getQueryData<HomeData>(['home']);
+      if (before) qc.setQueryData<HomeData>(['home'], { ...before, continue: before.continue.filter((c) => c.mediaId !== mediaId) });
+      return { before };
+    },
+    onError: (_err, _id, ctx) => ctx?.before && qc.setQueryData(['home'], ctx.before),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['home'] }),
+  });
 
   return (
     <div className="page page-wide home">
@@ -123,7 +141,7 @@ export default function Home() {
       {d && d.continue.length > 0 && (
         <Rail title="Continue watching" wide>
           {d.continue.map((c) => (
-            <ContinueCard key={`${c.kind}-${c.id}`} item={c} onInfo={() => setInfo(infoFor(c))} />
+            <ContinueCard key={`${c.kind}-${c.id}`} item={c} onInfo={() => setInfo(infoFor(c))} onRemove={() => remove.mutate(c.mediaId)} />
           ))}
         </Rail>
       )}

@@ -94,6 +94,28 @@ describe('watching', () => {
     expect((await call(viewer, 'GET', `/api/play/progress/${id}`)).json()[0]).toMatchObject({ position: 0, watched: false });
   });
 
+  it('removes a title from your Continue watching until you watch it again', async () => {
+    const { boss, viewer } = await users();
+    const id = addMovie();
+    await call(viewer, 'PUT', `/api/play/movie/${id}/progress`, { position: 600, duration: 9000 });
+    await call(boss, 'PUT', `/api/play/movie/${id}/progress`, { position: 300, duration: 9000 });
+
+    expect((await call(viewer, 'DELETE', `/api/continue/${id}`)).json()).toEqual({ ok: true });
+    expect((await call(viewer, 'GET', '/api/continue')).json()).toEqual([]);
+    expect((await call(viewer, 'GET', '/api/home')).json().continue).toEqual([]);
+    // Only for you, and your place is kept.
+    expect((await call(boss, 'GET', '/api/continue')).json()).toHaveLength(1);
+    expect((await call(viewer, 'GET', `/api/play/progress/${id}`)).json()[0]).toMatchObject({ position: 600 });
+
+    // Watching it again brings it back.
+    await new Promise((r) => setTimeout(r, 5));
+    await call(viewer, 'PUT', `/api/play/movie/${id}/progress`, { position: 700, duration: 9000 });
+    expect((await call(viewer, 'GET', '/api/continue')).json()).toEqual([expect.objectContaining({ id, position: 700 })]);
+
+    expect((await call(viewer, 'DELETE', '/api/continue/abc')).statusCode).toBe(400);
+    expect((await call(viewer, 'DELETE', '/api/continue/99999')).statusCode).toBe(404);
+  });
+
   it('never hands out someone else’s stream', async () => {
     const { viewer } = await users();
     const res = await call(viewer, 'GET', '/api/play/hls/0123456789abcdef0123456789abcdef/main.m3u8');
