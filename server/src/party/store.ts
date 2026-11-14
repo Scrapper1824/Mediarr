@@ -7,8 +7,8 @@ import { addMember, newParty, principalKey, removeMember, shouldEnd, viewerId, t
 /** Ended parties stay readable (as ended) for members for a while, then are forgotten. */
 const KEEP_ENDED_MS = 60 * 60_000;
 const SWEEP_MS = 30_000;
-/** Guests per party; a guest link can't be used to fill the server's memory. */
-export const MAX_GUESTS = 50;
+/** Guests per party: each is its own stream that skips the conversion limit. */
+export const MAX_GUESTS = 10;
 
 const parties = new Map<string, Party>();
 const endedAt = new Map<string, number>();

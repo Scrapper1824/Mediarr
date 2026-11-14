@@ -100,8 +100,9 @@ export async function partyRoutes(app: FastifyInstance) {
       return !!u && (!r.media.adult || !!u.allow_adult);
     });
     const payload = { partyId: party.id, from: req.user!.username, title: r.media.title, subtitle: subtitleOf(r.episode), poster: r.media.poster };
-    for (const uid of markInvited(party, allowed)) notify(uid, 'party_invite', payload);
-    return { invited: allowed };
+    const fresh = markInvited(party, allowed);
+    for (const uid of fresh) notify(uid, 'party_invite', payload);
+    return { invited: fresh };
   });
 
   app.post<{ Params: { id: string } }>('/api/party/:id/guest-link', async (req, reply) => {
@@ -116,8 +117,9 @@ export async function partyRoutes(app: FastifyInstance) {
     if (req.user) return reply.code(403).send({ error: 'You’re signed in: open the party link instead.' });
     const code = req.body?.code;
     if (typeof code !== 'string' || code.length > 200) return reply.code(400).send({ error: 'Bad request' });
-    // Party ids are 32 hex characters; anything else shares one bucket (so junk ids can't grow the map).
-    const limitKey = /^[0-9a-f]{32}$/.test(req.params.id) ? `party:${req.params.id}` : 'party:?';
+    // Counted per address only (plus the shared per-IP login bucket), so wrong codes from one place can't
+    // lock everyone else out of the party. Party ids are 32 hex characters; anything else shares one bucket.
+    const limitKey = `party:${/^[0-9a-f]{32}$/.test(req.params.id) ? req.params.id : '?'}:${req.ip}`;
     const wait = lockedFor(req.ip, limitKey);
     if (wait > 0) return reply.code(429).send({ error: `Too many tries. Try again in ${Math.ceil(wait / 60)} min.` });
     const party = getParty(req.params.id);

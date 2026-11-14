@@ -200,7 +200,7 @@ describe('streaming sessions', { timeout: 20_000 }, () => {
   it('party viewers skip the conversion limit', async () => {
     saveSettings({ maxTranscodes: 1 });
     session(1);
-    const exempt = createSession({ userId: -7, title: 'episode:1', file: 'C:\lib\ep.mkv', ffmpeg: 'ffmpeg', probe, decision, encoder: 'libx264', startAt: 0, exempt: true });
+    const exempt = createSession({ userId: -7, title: 'episode:1', file: 'C:\\lib\\ep.mkv', ffmpeg: 'ffmpeg', probe, decision, encoder: 'libx264', startAt: 0, exempt: true });
     expect(exempt.exempt).toBe(true);
     expect(() => session(3)).toThrow(/busy/);
     // Restarting its encoder (after a far jump with the encoder stopped) isn't refused either.

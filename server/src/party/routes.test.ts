@@ -100,6 +100,8 @@ describe('watch parties', () => {
     const inv = await call(friend.cookie, 'POST', `/api/party/${party.id}/invite`, { userIds: [fan.id, 9999, friend.id] });
     expect(inv.statusCode, inv.body).toBe(200);
     expect(inv.json()).toEqual({ invited: [fan.id] });
+    // Asking again notifies nobody new.
+    expect((await call(friend.cookie, 'POST', `/api/party/${party.id}/invite`, { userIds: [fan.id] })).json()).toEqual({ invited: [] });
 
     const notes = (await call(fan.cookie, 'GET', '/api/notifications')).json();
     expect(notes.unread).toBe(1);
@@ -149,6 +151,10 @@ describe('watch parties', () => {
 
     // The party's title: allowed (info needs FFmpeg, so it's only checked to get past the guards).
     expect((await call(guest, 'GET', `/api/play/episode/${show.eps[0]}/extras`)).statusCode).toBe(200);
+    // Direct play of the party's title (what start hands out for files the browser plays as they are).
+    const direct = await call(guest, 'GET', `/api/play/direct/episode/${show.eps[0]}`);
+    expect(direct.statusCode).toBe(200);
+    expect(direct.body).toBe('x');
     expect([401, 403, 404]).not.toContain((await call(guest, 'GET', `/api/play/episode/${show.eps[0]}/info`)).statusCode);
     // Another episode, another show: not found.
     expect((await call(guest, 'GET', `/api/play/episode/${show.eps[1]}/info`)).statusCode).toBe(404);
@@ -187,6 +193,30 @@ describe('watch parties', () => {
     const locked = await call(undefined, 'POST', `/api/party/${party.id}/guest-join`, { code: a.split('#')[1] });
     expect(locked.statusCode).toBe(429);
     expect((await call(undefined, 'POST', '/api/party/0123456789abcdef0123456789abcdef/guest-join', { code: 'x' })).statusCode).toBe(404);
+  });
+
+  it('wrong codes from one address don’t lock out another', async () => {
+    const { host } = await users();
+    const show = addShow('Bluey');
+    const party = await startParty(host.cookie, show.eps[0]);
+    const code = (await call(host.cookie, 'POST', `/api/party/${party.id}/guest-link`)).json().url.split('#')[1];
+    const join = (ip: string, c: string) =>
+      app.inject({ method: 'POST', url: `/api/party/${party.id}/guest-join`, headers: CSRF, payload: { code: c }, remoteAddress: ip });
+    for (let i = 0; i < 6; i++) await join('203.0.113.5', `wrong${i}`);
+    expect((await join('203.0.113.5', code)).statusCode).toBe(429);
+    expect((await join('198.51.100.7', code)).statusCode).toBe(200);
+  });
+
+  it('takes at most 10 guests', async () => {
+    const { host } = await users();
+    const show = addShow('Bluey');
+    const party = await startParty(host.cookie, show.eps[0]);
+    const code = (await call(host.cookie, 'POST', `/api/party/${party.id}/guest-link`)).json().url.split('#')[1];
+    for (let i = 0; i < 10; i++) expect((await call(undefined, 'POST', `/api/party/${party.id}/guest-join`, { code })).statusCode).toBe(200);
+    const full = await call(undefined, 'POST', `/api/party/${party.id}/guest-join`, { code });
+    expect(full.statusCode).toBe(403);
+    expect(full.json().error).toBe('This watch party is full.');
+    expect(full.headers['set-cookie']).toBeUndefined();
   });
 
   it('guest token for an ended party is refused everywhere', async () => {
