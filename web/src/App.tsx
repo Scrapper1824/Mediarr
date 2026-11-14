@@ -97,7 +97,21 @@ function Shell() {
     if (!menuOpen) return;
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false);
     document.addEventListener('keydown', esc);
-    return () => document.removeEventListener('keydown', esc);
+    // The panel starts right under the header, wherever the header ends on this phone.
+    const place = () => {
+      const header = document.querySelector('.sidebar')?.getBoundingClientRect();
+      if (header) document.documentElement.style.setProperty('--menu-top', `${Math.round(header.bottom)}px`);
+    };
+    place();
+    window.addEventListener('resize', place);
+    // The page behind doesn't scroll while the menu is open.
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('resize', place);
+      document.body.style.overflow = overflow;
+    };
   }, [menuOpen]);
   const badges = activeCount + pendingRequests;
 
