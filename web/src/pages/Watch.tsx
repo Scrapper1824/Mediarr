@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 // The light build: audio and subtitle tracks are handled by the server, so the rest of hls.js isn't needed.
 import Hls from 'hls.js/light';
@@ -376,10 +376,11 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
   const [partyMenu, setPartyMenu] = useState<null | 'members' | 'more'>(null);
   // Invite (accounts only): from a normal player the first click starts a party and moves into it.
   const canInvite = !!user && !party?.guest;
-  const location = useLocation();
-  const [inviteOpen, setInviteOpen] = useState(() => !!party && !party.guest && new URLSearchParams(location.search).has('invite'));
+  // Read from the address bar itself, not the router: the params are stripped with history.replaceState (which
+  // the router never sees), so the next episode's player (a new mount in the same party) finds none.
+  const [inviteOpen, setInviteOpen] = useState(() => !!party && !party.guest && new URLSearchParams(window.location.search).has('invite'));
   /** The party was started from a playing video (?play=1): send play once this stream is first ready. */
-  const playOnReady = useRef(!!party && !party.guest && new URLSearchParams(location.search).has('play'));
+  const playOnReady = useRef(!!party && !party.guest && new URLSearchParams(window.location.search).has('play'));
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   useEffect(() => {
@@ -431,10 +432,10 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
         setBlocked(false);
       },
       (e: unknown) => {
-        if ((e as { name?: string } | null)?.name === 'NotAllowedError') {
-          playBlocked.current = true;
-          setBlocked(true);
-        }
+        // Only an autoplay refusal needs a click; anything else (interrupted, not loaded yet) is retried by the tick.
+        const refused = (e as { name?: string } | null)?.name === 'NotAllowedError';
+        playBlocked.current = refused;
+        setBlocked(refused);
         setPlaying(false);
       },
     );
@@ -790,6 +791,21 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
     restartHere();
   };
 
+  /**
+   * The ▶ Play button shown when the browser refused to autoplay: starts this video only (never a party
+   * command, so it can't pause everyone, whatever state the button and the party are in).
+   */
+  const startBlocked = () => {
+    const v = video.current;
+    const p = partyRef.current;
+    playBlocked.current = false;
+    setBlocked(false);
+    if (!v || !p?.state?.playing || !streamReady.current || !v.paused) return;
+    if (expectedPosition(p.state, p.clock.now()) >= duration - 0.5) return;
+    applyParty(); // lines up and starts (or schedules the start)
+    if (v.paused && p.clock.now() >= p.state.at) applyPlay();
+  };
+
   const togglePlay = () => {
     const v = video.current!;
     if (party) {
@@ -797,9 +813,7 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
       // The party plays but the browser wouldn't start this video without a click: this is that click.
       // Only when it really was refused (not while waiting for a scheduled start, which a click must not jump).
       if (playBlocked.current && s?.playing && v.paused && streamReady.current && expectedPosition(s, party.clock.now()) < duration - 0.5) {
-        playBlocked.current = false;
-        applyParty();
-        if (v.paused) applyPlay();
+        startBlocked();
         return;
       }
       // Everyone's video changes when the party's new state comes back.
@@ -1211,7 +1225,7 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
         </div>
       )}
       {party && blocked && !playing && party.state?.playing && !error && (
-        <button className="btn primary watch-party-start" onClick={togglePlay}>
+        <button className="btn primary watch-party-start" onClick={startBlocked}>
           ▶ Play
         </button>
       )}
