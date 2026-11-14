@@ -89,14 +89,37 @@ function Shell() {
   const pendingRequests = usePendingRequests(isAdmin).data?.pending ?? 0;
   const showRequests = isAdmin || !!auth.data?.user?.needsApproval;
   const [updating, setUpdating] = useState(false);
+  // Phones: the pages are in a ☰ menu (the sidebar is a header there). It closes on any page change.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+  useEffect(() => setMenuOpen(false), [pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false);
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [menuOpen]);
+  const badges = activeCount + pendingRequests;
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <aside className={`sidebar${menuOpen ? ' menu-open' : ''}`}>
         <div className="brand">
           <Logo />
           <span>Mediarr</span>
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="main-menu"
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <Icon name={menuOpen ? 'close' : 'menu'} size={22} />
+            {!menuOpen && badges > 0 && <span className="menu-toggle-dot" aria-hidden />}
+          </button>
         </div>
+        <div className="sidebar-menu" id="main-menu">
         <nav>
           {NAV.map((group, gi) => (
             <div key={gi} className="nav-group">
@@ -141,7 +164,9 @@ function Shell() {
             <Icon name="signout" size={18} />
           </button>
         </div>
+        </div>
       </aside>
+      {menuOpen && <div className="menu-backdrop" onClick={() => setMenuOpen(false)} aria-hidden />}
       {updating && <UpdateDialog onClose={() => setUpdating(false)} />}
       <ScrollToTop />
       <main className="content">
