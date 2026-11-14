@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  advance, applyCommand, connect, disconnect, newParty, positionAt, principalKey,
+  addMember, advance, applyCommand, connect, disconnect, newParty, positionAt, principalKey, removeMember,
   setBuffering, shouldEnd, tickBuffering, viewerId,
   type Party, type Principal,
 } from './state.js';
@@ -151,5 +151,29 @@ describe('party state', () => {
     expect(viewerId({ type: 'guest', guestId: 3, name: 'g' })).toBe(-3);
     expect(principalKey(host)).toBe('u:1');
     expect(principalKey(guest)).toBe('g:3');
+  });
+});
+
+describe('members without a socket', () => {
+  it('addMember adds once, unconnected, without touching emptySince', () => {
+    const p = newParty('p1', host, 100, { kind: 'movie', id: 100 }, 0, 5);
+    const m = addMember(p, guest, 'hash');
+    expect(m).toMatchObject({ principal: guest, connected: 0, buffering: null, tokenHash: 'hash' });
+    expect(addMember(p, guest)).toBe(m);
+    expect(p.members.size).toBe(1);
+    expect(p.emptySince).toBe(5);
+    connect(p, guest, 6);
+    expect(p.members.get('g:3')!.connected).toBe(1);
+  });
+
+  it('removeMember forgets them and starts the empty clock when nobody is left connected', () => {
+    const p = make();
+    removeMember(p, 'g:3', 50);
+    expect(p.members.has('g:3')).toBe(false);
+    expect(p.emptySince).toBeNull();
+    removeMember(p, principalKey(host), 60);
+    expect(p.emptySince).toBe(60);
+    removeMember(p, 'nobody', 70);
+    expect(p.emptySince).toBe(60);
   });
 });

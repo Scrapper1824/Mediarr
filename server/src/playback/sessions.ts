@@ -32,6 +32,8 @@ export interface Session {
   requestSeq: number;
   lastAccess: number;
   error: string | null;
+  /** A watch-party viewer: never refused for the conversion limit (still counted toward it). */
+  exempt: boolean;
 }
 
 const sessions = new Map<string, Session>();
@@ -144,12 +146,14 @@ export interface NewSession {
   startAt: number;
   /** Where pieces start (copying: from the file's keyframes); even 4 s pieces when left out. */
   starts?: number[];
+  /** A watch-party viewer: skips the conversion limit. */
+  exempt?: boolean;
 }
 
 /** Starts a transcode for one viewer. Their earlier streams end (one stream per user at a time). */
 export function createSession(n: NewSession): Session {
   for (const s of sessions.values()) if (s.userId === n.userId) endSession(s.id);
-  if (!n.decision.copyVideo && converting() >= Math.max(1, getSettings().maxTranscodes)) {
+  if (!n.exempt && !n.decision.copyVideo && converting() >= Math.max(1, getSettings().maxTranscodes)) {
     throw Object.assign(new Error('The server is busy converting other videos right now. Try again in a little while.'), { statusCode: 503 });
   }
   const id = crypto.randomBytes(16).toString('hex');
@@ -178,6 +182,7 @@ export function createSession(n: NewSession): Session {
     requestSeq: 0,
     lastAccess: Date.now(),
     error: null,
+    exempt: !!n.exempt,
   };
   sessions.set(id, s);
   launch(s, first);
@@ -219,7 +224,7 @@ export async function waitForSegment(s: Session, n: number, timeoutMs = 45_000, 
       if (!s.proc && s.error && n >= s.runStart && n <= s.next) {
         throw Object.assign(new Error(`Converting failed: ${s.error}`), { statusCode: 500 });
       }
-      if (!s.proc && !s.decision.copyVideo && converting() >= Math.max(1, getSettings().maxTranscodes)) {
+      if (!s.proc && !s.exempt && !s.decision.copyVideo && converting() >= Math.max(1, getSettings().maxTranscodes)) {
         throw Object.assign(new Error('The server is busy converting other videos right now.'), { statusCode: 503 });
       }
       launch(s, n);
@@ -239,8 +244,9 @@ export function endSession(id: string) {
   fs.rm(s.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }, () => {});
 }
 
-export function endUserSessions(userId: number) {
-  for (const s of [...sessions.values()]) if (s.userId === userId) endSession(s.id);
+/** Ends a viewer's streams; only the one of `title` ("episode:12") when it's given. */
+export function endUserSessions(userId: number, title?: string) {
+  for (const s of [...sessions.values()]) if (s.userId === userId && (title === undefined || s.title === title)) endSession(s.id);
 }
 
 /** Housekeeping: ends idle sessions, pauses runs far ahead of the player, deletes segments long behind it. */

@@ -27,6 +27,8 @@ export interface Member {
   principal: Principal;
   connected: number; // open socket count
   buffering: number | null; // since (server ms), or null
+  /** Guests: SHA-256 (hex) of their cookie secret. Never the secret itself. */
+  tokenHash?: string;
 }
 
 export interface Party {
@@ -158,6 +160,22 @@ export function connect(p: Party, principal: Principal, now: number): void {
   if (m) m.connected += 1;
   else p.members.set(key, { principal, connected: 1, buffering: null });
   p.emptySince = null;
+}
+
+/** Adds a member without a socket (host on create, guest on join). Existing members are left as they are. */
+export function addMember(p: Party, principal: Principal, tokenHash?: string): Member {
+  const key = principalKey(principal);
+  const existing = p.members.get(key);
+  if (existing) return existing;
+  const m: Member = { principal, connected: 0, buffering: null, ...(tokenHash ? { tokenHash } : {}) };
+  p.members.set(key, m);
+  return m;
+}
+
+/** Someone left: forgotten entirely (a guest's cookie stops working). */
+export function removeMember(p: Party, key: string, now: number): void {
+  if (!p.members.delete(key)) return;
+  if (p.emptySince === null && ![...p.members.values()].some((x) => x.connected > 0)) p.emptySince = now;
 }
 
 export function disconnect(p: Party, key: string, now: number): void {

@@ -8,7 +8,7 @@ import { saveSettings } from '../settings.js';
 import type { Decision } from './decide.js';
 import { usePlaybackDataDir } from './ffmpeg.js';
 import type { MediaProbe } from './probe.js';
-import { activeSessions, createSession, gpuFallbackActive, resetGpuFallback, getSession, startPlayback, stopPlayback, sweep, useLauncher, waitForSegment } from './sessions.js';
+import { activeSessions, createSession, endUserSessions, gpuFallbackActive, resetGpuFallback, getSession, startPlayback, stopPlayback, sweep, useLauncher, waitForSegment } from './sessions.js';
 
 let tmp: string;
 let launches: number[];
@@ -195,6 +195,26 @@ describe('streaming sessions', { timeout: 20_000 }, () => {
     expect(getSession(a.id, 1)).toBeNull(); // replaced
     expect(await eventually(() => !fs.existsSync(a.dir))).toBe(true);
     expect(activeSessions().map((s) => s.id)).toEqual([b.id]);
+  });
+
+  it('party viewers skip the conversion limit', async () => {
+    saveSettings({ maxTranscodes: 1 });
+    session(1);
+    const exempt = createSession({ userId: -7, title: 'episode:1', file: 'C:\lib\ep.mkv', ffmpeg: 'ffmpeg', probe, decision, encoder: 'libx264', startAt: 0, exempt: true });
+    expect(exempt.exempt).toBe(true);
+    expect(() => session(3)).toThrow(/busy/);
+    // Restarting its encoder (after a far jump with the encoder stopped) isn't refused either.
+    exempt.proc?.kill('SIGKILL');
+    exempt.proc = null;
+    expect(await waitForSegment(exempt, 200)).toMatch(/seg200\.ts$/);
+  });
+
+  it('only ends a user’s stream of the given title when one is named', () => {
+    const a = session(1);
+    endUserSessions(1, 'movie:9');
+    expect(activeSessions().map((s) => s.id)).toEqual([a.id]);
+    endUserSessions(1, 'episode:1');
+    expect(activeSessions()).toEqual([]);
   });
 
   it('refuses more conversions than the limit', () => {
