@@ -83,6 +83,16 @@ describe.skipIf(!tools)('intro detection and thumbnails with real FFmpeg', () =>
     expect(Date.now() - before).toBeLessThan(200);
   }, 180_000);
 
+  it('drops an intro saved from chapters under older rules, and finds the real one again', async () => {
+    // As saved by an older version from an "Intro" chapter that was really the cold open.
+    db.prepare("INSERT OR REPLACE INTO media_segments (file, kind, start, end, source) VALUES (?, 'intro', 0, 19, 'chapters')").run(files[0]);
+    db.prepare("DELETE FROM media_analysis WHERE file = ? AND what = 'chapters-v2'").run(files[0]);
+    await analyseSeason(mediaId, 1);
+    const e1 = getSegments(files[0]);
+    expect(Math.abs(e1.intro!.start - 20)).toBeLessThan(2);
+    expect(db.prepare("SELECT source FROM media_segments WHERE file = ? AND kind = 'intro'").get(files[0])).toEqual({ source: 'audio' });
+  }, 180_000);
+
   it('makes seek-bar thumbnail sheets for the whole video', async () => {
     const m = await makeTrickplay(files[0]);
     expect(m).toMatchObject({ interval: 10, width: 320, height: 180, columns: 10, rows: 10, sheets: 1 });

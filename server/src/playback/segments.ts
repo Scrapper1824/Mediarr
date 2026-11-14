@@ -18,7 +18,16 @@ export const POINT_SECONDS = 4096 / 11025 / 3;
 
 // ---- Chapters ----
 
-const INTRO_CHAPTER = /^(?:op(?:ening)?(?:\s*(?:song|theme|credits))?|intro(?:duction)?|title sequence|main titles?)(?:\s*\d+)?$/i;
+/** Marks files whose chapters were read under the current naming rules (bumped when the rules change). */
+export const CHAPTER_RULES = 'chapters-v2';
+
+/** The opening song itself. */
+const OPENING_CHAPTER = /^(?:op(?:ening)?(?:\s*(?:song|theme|credits))?|title sequence|main titles?)(?:\s*\d+)?$/i;
+/**
+ * "Intro" is only the opening when nothing is called Opening/OP: some releases (EMBER, for one) call the
+ * cold open before the song "Intro" and the song "Opening".
+ */
+const GENERIC_INTRO_CHAPTER = /^intro(?:duction)?(?:\s*\d+)?$/i;
 const CREDITS_CHAPTER = /^(?:ed|ending(?:\s*(?:song|theme|credits))?|end(?:ing)?\s*credits|credits|outro|closing(?:\s*credits)?)(?:\s*\d+)?$/i;
 
 /**
@@ -44,11 +53,13 @@ export function placeSegments(segs: Partial<Record<SegmentKind, Segment>>, durat
 export function segmentsFromChapters(chapters: Chapter[]): Partial<Record<SegmentKind, Segment>> {
   const out: Partial<Record<SegmentKind, Segment>> = {};
   const length = chapters.reduce((m, c) => Math.max(m, c.end), 0);
+  const hasOpening = chapters.some((c) => OPENING_CHAPTER.test((c.title ?? '').trim()));
+  const isIntro = (title: string) => OPENING_CHAPTER.test(title) || (!hasOpening && GENERIC_INTRO_CHAPTER.test(title));
   for (const c of chapters) {
     const title = (c.title ?? '').trim();
     const len = c.end - c.start;
     if (!title || len < 10 || len > 240) continue;
-    if (!out.intro && INTRO_CHAPTER.test(title)) out.intro = { start: c.start, end: c.end };
+    if (!out.intro && isIntro(title)) out.intro = { start: c.start, end: c.end };
     else if (!out.credits && CREDITS_CHAPTER.test(title)) out.credits = { start: c.start, end: c.end };
   }
   return placeSegments(out, length);
@@ -250,16 +261,33 @@ export async function analyseSeason(mediaId: number, season: number): Promise<vo
   const skipTodo = media.type === 'anime' ? eps.filter((e) => !analysed(e.file_path!, 'aniskip')) : [];
   // Shows ask TheIntroDB once per file the same way (TMDB numbering, which is what shows here use).
   const introDbTodo = media.type === 'show' && media.tmdb_id ? eps.filter((e) => !analysed(e.file_path!, 'introdb')) : [];
-  if (!todo.length && !skipTodo.length && !introDbTodo.length) return;
+  // Chapters read again under the current rules (an "Intro" chapter used to win even when it was the cold open).
+  const recheck = eps.filter((e) => !analysed(e.file_path!, CHAPTER_RULES));
+  if (!todo.length && !skipTodo.length && !introDbTodo.length && !recheck.length) return;
 
   const info = new Map<string, { duration: number; head?: Uint32Array; tail?: Uint32Array; found: Partial<Record<SegmentKind, Segment>> }>();
   const fromChapters = new Map<string, Partial<Record<SegmentKind, Segment>>>();
   for (const e of eps) {
-    const probe = await probeFile(e.file_path!);
+    const file = e.file_path!;
+    const probe = await probeFile(file);
     const found = segmentsFromChapters(probe.chapters);
-    fromChapters.set(e.file_path!, found);
-    info.set(e.file_path!, { duration: probe.duration, found: { ...getSegments(e.file_path!), ...found } });
-    for (const [kind, seg] of Object.entries(found)) saveSegment(e.file_path!, kind as SegmentKind, seg, 'chapters');
+    fromChapters.set(file, found);
+    // A section saved from chapters that the current rules don't give any more is dropped, and the other
+    // sources look for it again.
+    let dropped = false;
+    for (const row of db.prepare("SELECT kind FROM media_segments WHERE file = ? AND source = 'chapters'").all(file) as { kind: SegmentKind }[]) {
+      if (found[row.kind]) continue;
+      deleteSegment(file, row.kind);
+      dropped = true;
+    }
+    if (dropped) {
+      if (media.type === 'anime' && !skipTodo.includes(e)) skipTodo.push(e);
+      if (media.type === 'show' && media.tmdb_id && !introDbTodo.includes(e)) introDbTodo.push(e);
+      if (!todo.includes(e)) todo.push(e);
+    }
+    for (const [kind, seg] of Object.entries(found)) saveSegment(file, kind as SegmentKind, seg, 'chapters');
+    info.set(file, { duration: probe.duration, found: { ...getSegments(file), ...found } });
+    markAnalysed(file, CHAPTER_RULES);
   }
 
   const load = async (file: string, part: 'head' | 'tail') => {
@@ -299,18 +327,28 @@ export async function analyseSeason(mediaId: number, season: number): Promise<vo
             // long. Find a stretch exactly that long that this episode shares with its neighbours.
             const length = seg.end - seg.start;
             const part = kind === 'intro' ? 'head' : 'tail';
+            // The extra (or missing) time is somewhere in the file, so here it starts within that much of
+            // where AniSkip has it.
+            const shift = Math.abs(me.duration - (times.measuredOn ?? me.duration));
+            const near = (start: number) => start >= seg.start - shift - 20 && start <= seg.start + shift + 20;
             let aligned: Segment | null = null;
             for (const other of neighbours(file).slice(0, 3)) {
-              const m = findSharedAudio(await load(file, part), await load(other, part), { minSeconds: Math.max(10, length - 8), maxSeconds: length + 8 });
+              // The song can run straight into other audio every episode shares (a sponsor card, an
+              // eyecatch), so the shared stretch may be longer than the song: then it's at one end of it.
+              const m = findSharedAudio(await load(file, part), await load(other, part), { minSeconds: Math.max(10, length - 8), maxSeconds: length + 40 });
               if (!m) continue;
-              aligned = { start: m.a.start + partOffset(file, part), end: m.a.end + partOffset(file, part) };
+              const run = { start: m.a.start + partOffset(file, part), end: m.a.end + partOffset(file, part) };
+              const options = run.end - run.start > length + 8 ? [{ start: run.start, end: run.start + length }, { start: run.end - length, end: run.end }] : [run];
+              const pick = options.find((o) => near(o.start));
+              if (!pick) continue;
+              aligned = pick;
               break;
             }
             if (aligned) {
               me.found[kind] = aligned;
               saveSegment(file, kind, aligned, 'aniskip');
-            } else if (me.found[kind] && Math.abs(me.found[kind]!.end - me.found[kind]!.start - length) > 10) {
-              // An earlier guess that isn't even the right length isn't the opening/ending: better none.
+            } else if (me.found[kind] && (!near(me.found[kind]!.start) || Math.abs(me.found[kind]!.end - me.found[kind]!.start - length) > 10)) {
+              // An earlier guess nowhere near where the opening/ending is, or not its length, isn't it: better none.
               deleteSegment(file, kind);
               delete me.found[kind];
             }
@@ -370,14 +408,21 @@ export async function analyseSeason(mediaId: number, season: number): Promise<vo
 
 /** Movies: chapter names, then TheIntroDB (there are no other episodes to compare with). */
 export async function analyseMovie(file: string, tmdbId?: number | null): Promise<void> {
-  const needChapters = !analysed(file, 'segments');
-  const needIntroDb = !!tmdbId && !analysed(file, 'introdb');
+  const needChapters = !analysed(file, 'segments') || !analysed(file, CHAPTER_RULES);
+  let needIntroDb = !!tmdbId && !analysed(file, 'introdb');
   if (!needChapters && !needIntroDb) return;
   const probe = await probeFile(file);
   const chapters = segmentsFromChapters(probe.chapters);
   if (needChapters) {
+    // Sections saved from chapters that the current rules don't give any more are dropped (TheIntroDB is asked again).
+    for (const row of db.prepare("SELECT kind FROM media_segments WHERE file = ? AND source = 'chapters'").all(file) as { kind: SegmentKind }[]) {
+      if (chapters[row.kind]) continue;
+      deleteSegment(file, row.kind);
+      needIntroDb = !!tmdbId;
+    }
     for (const [kind, seg] of Object.entries(chapters)) saveSegment(file, kind as SegmentKind, seg, 'chapters');
     markAnalysed(file, 'segments');
+    markAnalysed(file, CHAPTER_RULES);
   }
   // Then TheIntroDB (by TMDB id); chapters in the file still win.
   if (needIntroDb) {

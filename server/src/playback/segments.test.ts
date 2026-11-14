@@ -80,6 +80,19 @@ describe('intro and credits from chapters', () => {
     });
   });
 
+  it('takes the Opening chapter over an Intro chapter that is the cold open (EMBER and others)', () => {
+    expect(
+      segmentsFromChapters([
+        { start: 0, end: 99, title: 'Intro' },
+        { start: 99, end: 189, title: 'Opening' },
+        { start: 189, end: 1301, title: 'Episode' },
+        { start: 1301, end: 1390, title: 'Ending' },
+      ]),
+    ).toEqual({ intro: { start: 99, end: 189 }, credits: { start: 1301, end: 1390 } });
+    // With no Opening chapter, an Intro chapter is the intro.
+    expect(segmentsFromChapters([{ start: 30, end: 120, title: 'Intro' }, { start: 120, end: 1300, title: 'Part A' }])).toEqual({ intro: { start: 30, end: 120 } });
+  });
+
   it('treats an opening song played over the end credits as the credits', () => {
     // First episodes often have no opening at the start and play it at the end; releases still call it "Opening".
     expect(

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { db, getEpisodes, getMedia } from '../db.js';
 import { getSettings } from '../settings.js';
 import { findFfmpeg } from './ffmpeg.js';
-import { analyseMovie, analyseSeason, analysed } from './segments.js';
+import { analyseMovie, analyseSeason, analysed, CHAPTER_RULES } from './segments.js';
 import { makeTrickplay, trickplayManifest } from './trickplay.js';
 
 /**
@@ -73,7 +73,7 @@ export function queueMediaWork(mediaId: number, opts: { urgent?: boolean; focusE
     const file = media.file_path;
     if (!file || !fs.existsSync(file)) return;
     if (s.trickplay && !trickplayManifest(file)) enqueue(`thumbs:${file}`, () => makeTrickplay(file), opts.urgent);
-    if (s.introDetection && (!analysed(file, 'segments') || (!!media.tmdb_id && !analysed(file, 'introdb')))) {
+    if (s.introDetection && (!analysed(file, 'segments') || !analysed(file, CHAPTER_RULES) || (!!media.tmdb_id && !analysed(file, 'introdb')))) {
       enqueue(`segments:${file}`, () => analyseMovie(file, media.tmdb_id), opts.urgent);
     }
     return;
@@ -90,6 +90,7 @@ export function queueMediaWork(mediaId: number, opts: { urgent?: boolean; focusE
     for (const season of seasons) {
       const pending = (e: (typeof ordered)[number]) =>
         !analysed(e.file_path!, 'segments') ||
+        !analysed(e.file_path!, CHAPTER_RULES) ||
         (media.type === 'anime' && !analysed(e.file_path!, 'aniskip')) ||
         (media.type === 'show' && !!media.tmdb_id && !analysed(e.file_path!, 'introdb'));
       if (ordered.some((e) => e.season === season && pending(e))) {
