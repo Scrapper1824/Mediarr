@@ -281,6 +281,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   ip TEXT,
   user_agent TEXT
 );
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id);
 CREATE INDEX IF NOT EXISTS idx_episodes_media ON episodes(media_id);
 CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
 -- Home's "recently added" looks up each title's newest import; without this it reads all of history per title.

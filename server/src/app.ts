@@ -6,6 +6,7 @@ import { authRoutes } from './auth/routes.js';
 import { registerSecurity } from './auth/security.js';
 import { userRoutes } from './auth/users.js';
 import { apiRoutes } from './routes/api.js';
+import { notificationRoutes } from './routes/notifications.js';
 import { watchlistRoutes } from './routes/watchlist.js';
 import { playRoutes } from './routes/play.js';
 import { usePlaybackDataDir } from './playback/ffmpeg.js';
@@ -64,6 +65,7 @@ export async function buildApp(opts: {
   await app.register(userRoutes);
   await app.register(apiRoutes);
   await app.register(watchlistRoutes);
+  await app.register(notificationRoutes);
   await app.register(playRoutes);
 
   const webDist = opts.webDist === undefined ? path.resolve(import.meta.dirname, '../../web/dist') : opts.webDist;

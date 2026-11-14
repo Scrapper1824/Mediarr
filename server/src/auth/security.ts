@@ -52,6 +52,10 @@ export const USER_ALLOWED = new Set([
   'GET /api/history',
   'GET /api/search-events',
   // Watchlists: each user manages only their own (the routes use req.user, never an id from the client).
+  'GET /api/notifications',
+  'POST /api/notifications/read',
+  'DELETE /api/notifications/:id',
+  'GET /api/party/invitees',
   'GET /api/watchlist/links',
   'POST /api/watchlist/simkl/start',
   'POST /api/watchlist/simkl/poll',
