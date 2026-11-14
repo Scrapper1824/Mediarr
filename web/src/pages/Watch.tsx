@@ -7,6 +7,9 @@ import type JASSUB from 'jassub';
 import { api } from '../api';
 import { useAuth } from '../components/AuthGate';
 import { detectCaps } from '../player/caps';
+import { correction, expectedPosition, isEcho } from '../party/sync';
+import { bufferedAhead, waitingLabel } from '../party/protocol';
+import type { PartyBinding } from '../party/useParty';
 
 interface Track {
   order: number;
@@ -19,7 +22,7 @@ interface SubTrack extends Track {
   text: boolean;
   forced: boolean;
 }
-interface PlayInfo {
+export interface PlayInfo {
   kind: 'movie' | 'episode';
   id: number;
   mediaId: number;
@@ -269,7 +272,17 @@ export default function Watch() {
   return <Player key={`${kind}-${id}`} info={d} />;
 }
 
-function Player({ info }: { info: PlayInfo }) {
+/** A paused party video further than this (s) from the party's position is moved to it. */
+const PARTY_PAUSED_TOLERANCE = 0.15;
+
+/** Where the party is right now (s), kept inside the video. */
+function partyPosition(party: PartyBinding, duration: number): number {
+  const s = party.state;
+  if (!s) return 0;
+  return Math.min(Math.max(0, expectedPosition(s, party.clock.now())), Math.max(0, duration - 0.5));
+}
+
+export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }) {
   const navigate = useNavigate();
   const shell = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -281,7 +294,8 @@ function Player({ info }: { info: PlayInfo }) {
   const [audio, setAudio] = useState<number | null>(() => pickAudio(info));
   const user = useAuth().data?.user?.username;
   const [subtitle, setSubtitle] = useState<number | null>(() => startSubtitle(info, pickAudio(info), user));
-  const [autoSkip, setAutoSkip] = useState(() => loadAutoSkip(user));
+  // In a party everyone's skips would fight over the shared position, so auto-skip stays off there.
+  const [autoSkip, setAutoSkip] = useState(() => !party && loadAutoSkip(user));
   const [debug, setDebug] = useState(() => new URLSearchParams(window.location.search).has('debug'));
   /** When you last moved the playhead yourself: landing inside an intro on purpose is never undone. */
   const lastUserSeek = useRef(0);
@@ -289,10 +303,13 @@ function Player({ info }: { info: PlayInfo }) {
   const skipHandled = useRef(new Set<string>());
   const [skipNote, setSkipNote] = useState<{ text: string; back: number } | null>(null);
   const [quality, setQuality] = useState<Quality>('auto');
-  const [resumeAsked, setResumeAsked] = useState(info.position > 30);
+  // A party starts where the party is, never with the resume question.
+  const [resumeAsked, setResumeAsked] = useState(!party && info.position > 30);
   // A new object each time, so starting again at the same second still restarts the stream.
   // `play: false` keeps it paused (a restart while you had it paused).
-  const [start, setStart] = useState<{ at: number; play?: boolean } | null>(info.position > 30 ? null : { at: 0 });
+  const [start, setStart] = useState<{ at: number; play?: boolean } | null>(() =>
+    party ? { at: partyPosition(party, info.duration) } : info.position > 30 ? null : { at: 0 },
+  );
   const [mode, setMode] = useState<StartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -319,10 +336,236 @@ function Player({ info }: { info: PlayInfo }) {
     session.current = null;
   }, []);
 
+  // Party guests have no account, so nothing to save progress to.
+  const noProgress = !!party?.guest;
   const saveProgress = useCallback(() => {
+    if (noProgress) return;
     const t = currentTime();
     if (t > 0) keepalive('PUT', `${base}/progress`, { position: t, duration });
-  }, [base, duration, currentTime]);
+  }, [base, duration, currentTime, noProgress]);
+
+  // ---- Party mode ----
+  // The party (server) owns play/pause/position. Our controls send commands; the pushed state is applied here,
+  // programmatically. Every change we make ourselves is recorded in `applied`, and media events that match one
+  // (isEcho) are never sent back. Media events are only sent at all when the video differs from the party's state.
+  const partyRef = useRef(party);
+  partyRef.current = party;
+  const applied = useRef<{ type: 'play' | 'pause' | 'seek'; position: number; atClient: number }[]>([]);
+  /** When we last moved the playhead ourselves (pushed seek, drift jump, stream start). */
+  const lastAppliedSeek = useRef(0);
+  /** A stream has been attached to the video (state is only applied to a loaded video). */
+  const streamReady = useRef(false);
+  /** The browser refused to start playback without a click (autoplay rules). */
+  const playBlocked = useRef(false);
+  const [blocked, setBlocked] = useState(false);
+  const playTimer = useRef<number>();
+  const stallTimer = useRef<number>();
+  /** In 'waiting' (no data to play). */
+  const stalled = useRef(false);
+  /** We told the party we're buffering and haven't said we're ready since. */
+  const bufferingSent = useRef(false);
+  /** Tell the party once this stream can play (after each stream start and after reporting a stall). */
+  const needReady = useRef(false);
+  const [partyMenu, setPartyMenu] = useState<null | 'members' | 'more'>(null);
+
+  const markApplied = (type: 'play' | 'pause' | 'seek', position: number) => {
+    const now = Date.now();
+    applied.current = [...applied.current.filter((a) => now - a.atClient < 1000), { type, position, atClient: now }];
+  };
+  const isOurs = (type: 'play' | 'pause' | 'seek', position: number) => {
+    const ev = { type, position, atClient: Date.now() };
+    return applied.current.some((a) => isEcho(a, ev));
+  };
+  const applySeek = (to: number) => {
+    const v = video.current;
+    if (!v) return;
+    const t = Math.min(Math.max(0, to), Math.max(0, duration - 0.5));
+    markApplied('seek', t);
+    lastAppliedSeek.current = Date.now();
+    v.currentTime = t;
+    setTime(t);
+  };
+  const applyPlay = () => {
+    const v = video.current;
+    if (!v) return;
+    markApplied('play', v.currentTime);
+    v.play().then(
+      () => {
+        playBlocked.current = false;
+        setBlocked(false);
+      },
+      (e: unknown) => {
+        if ((e as { name?: string } | null)?.name === 'NotAllowedError') {
+          playBlocked.current = true;
+          setBlocked(true);
+        }
+        setPlaying(false);
+      },
+    );
+  };
+  const applyPause = () => {
+    const v = video.current;
+    if (!v) return;
+    markApplied('pause', v.currentTime);
+    v.pause();
+  };
+
+  /** Makes the video match the party's state: play/pause, and the position when it's off by more than drift fixes. */
+  const applyParty = () => {
+    const p = partyRef.current;
+    const v = video.current;
+    if (!p?.state || !v || !streamReady.current) return;
+    // A push for the next title: the party page swaps this player out.
+    if (p.title && (p.title.kind !== info.kind || p.title.id !== info.id)) return;
+    window.clearTimeout(playTimer.current);
+    const s = p.state;
+    const now = p.clock.now();
+    const end = duration - 0.5;
+    if (!s.playing) {
+      // Position first, so the pause is recorded at the position its event will report.
+      if (v.readyState >= 1 && Math.abs(v.currentTime - Math.min(s.position, end)) > PARTY_PAUSED_TOLERANCE) applySeek(s.position);
+      if (!v.paused) applyPause();
+      if (v.playbackRate !== 1) v.playbackRate = 1;
+      if (s.position < end - 1) setCountdown(null);
+      return;
+    }
+    const target = expectedPosition(s, now);
+    // The party is past the end: let this video finish (or stay finished) rather than replay its last moment.
+    if (target >= end) return;
+    setCountdown(null);
+    const delay = s.at - now;
+    if (v.readyState >= 1) {
+      const off = Math.abs(v.currentTime - target);
+      // Playing: drift correction handles small gaps. Paused: line up exactly before starting (cheap while paused).
+      if (off > 1 || (v.paused && off > PARTY_PAUSED_TOLERANCE)) applySeek(delay > 0 ? s.position : target);
+    }
+    if (!v.paused) return;
+    if (playBlocked.current) return; // waits for a click (the ▶ button)
+    if (delay > 0) {
+      // Everyone starts on the same server instant.
+      playTimer.current = window.setTimeout(() => {
+        if (video.current?.paused && partyRef.current?.state === s) applyPlay();
+      }, delay);
+    } else {
+      applyPlay();
+    }
+  };
+  const applyPartyRef = useRef(applyParty);
+  applyPartyRef.current = applyParty;
+
+  /** Sends `buffering: false` once the video has enough to play (≥ 2 s ahead, or the browser says enough). */
+  const checkReady = () => {
+    const p = partyRef.current;
+    const v = video.current;
+    if (!p || !v || !needReady.current || !streamReady.current || v.seeking || v.readyState < 3) return;
+    const ahead = bufferedAhead(v.buffered, v.currentTime);
+    if (ahead < 2 && v.readyState < 4 && v.currentTime + ahead < duration - 0.5) return;
+    if (!p.send({ t: 'buffering', on: false })) return; // not connected: tried again on the next check
+    needReady.current = false;
+    bufferingSent.current = false;
+  };
+  const checkReadyRef = useRef(checkReady);
+  checkReadyRef.current = checkReady;
+
+  /** Out of data while playing for > 300 ms (and over 1 s after we moved the playhead): hold the party. */
+  const onPartyWaiting = () => {
+    stalled.current = true;
+    window.clearTimeout(stallTimer.current);
+    const wait = Math.max(300, lastAppliedSeek.current + 1000 - Date.now());
+    stallTimer.current = window.setTimeout(() => {
+      const p = partyRef.current;
+      const v = video.current;
+      if (!p || !v || !stalled.current || bufferingSent.current || v.paused) return;
+      if (v.readyState >= 3) {
+        stalled.current = false;
+        return;
+      }
+      if (p.send({ t: 'buffering', on: true })) {
+        bufferingSent.current = true;
+        needReady.current = true;
+      }
+    }, wait);
+  };
+
+  /**
+   * Played or paused by something other than our controls (media keys, headphones, picture-in-picture):
+   * passed on to the party, unless it's our own applied change, the video ending, or a stream (re)loading.
+   */
+  const onPartyMedia = (type: 'play' | 'pause') => {
+    const p = partyRef.current;
+    const v = video.current;
+    if (!p?.state || !v || !streamReady.current) return;
+    if (isOurs(type, v.currentTime)) return;
+    if (type === 'play') {
+      if (p.state.playing) return;
+      // Hold it until the party's scheduled start, so everyone starts together.
+      applyPause();
+      p.send({ t: 'play' });
+    } else {
+      // Hidden pages get paused by the browser or the phone (switching apps): not a choice to pause everyone.
+      if (!p.state.playing || v.ended || v.seeking || v.readyState < 2 || document.hidden) return;
+      p.send({ t: 'pause' });
+    }
+  };
+
+  // Each pushed state is applied once (a new object per push; applying is idempotent anyway).
+  useEffect(() => {
+    if (party) applyPartyRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.state]);
+
+  // After a reconnect the server has forgotten that we were buffering.
+  useEffect(() => {
+    if (!party || party.connection <= 1) return;
+    if (bufferingSent.current) party.send({ t: 'buffering', on: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [party?.connection]);
+
+  // Drift correction every 500 ms (and the readiness check).
+  const partyTick = () => {
+    const p = partyRef.current;
+    const v = video.current;
+    if (!p?.state || !v || !streamReady.current) return;
+    checkReady();
+    const s = p.state;
+    if (!s.playing) {
+      if (v.playbackRate !== 1) v.playbackRate = 1;
+      return;
+    }
+    const now = p.clock.now();
+    if (now < s.at) return; // a scheduled start hasn't come yet
+    const expected = expectedPosition(s, now);
+    if (v.ended || expected >= duration - 0.5) {
+      if (v.playbackRate !== 1) v.playbackRate = 1;
+      return;
+    }
+    if (v.paused) {
+      // The party plays but this video doesn't (its start was cut short): start it, unless it needs a click.
+      if (!playBlocked.current && v.readyState >= 1) applyParty();
+      return;
+    }
+    // Not while loading: a jump would only add to the wait.
+    if (v.seeking || v.readyState < 3 || stalled.current) return;
+    const c = correction(v.currentTime, expected, v.playbackRate);
+    if (c.kind === 'rate') v.playbackRate = c.rate;
+    else if (c.kind === 'reset-rate') v.playbackRate = 1;
+    else if (c.kind === 'jump') {
+      v.playbackRate = 1;
+      applySeek(c.to);
+    }
+  };
+  const partyTickRef = useRef(partyTick);
+  partyTickRef.current = partyTick;
+  const inParty = !!party;
+  useEffect(() => {
+    if (!inParty) return;
+    const t = window.setInterval(() => partyTickRef.current(), 500);
+    return () => {
+      window.clearInterval(t);
+      window.clearTimeout(playTimer.current);
+      window.clearTimeout(stallTimer.current);
+    };
+  }, [inParty]);
 
   // Start (or restart, after changing audio/quality) the stream at `startAt`.
   useEffect(() => {
@@ -332,6 +575,11 @@ function Player({ info }: { info: PlayInfo }) {
     let cancelled = false;
     setError(null);
     setWaiting(true);
+    if (partyRef.current) {
+      // A (re)start counts as a move we made, and the party hears once this stream is ready.
+      lastAppliedSeek.current = Date.now();
+      needReady.current = true;
+    }
     (async () => {
       try {
         const r = await api.post<StartResult>(`${base}/start`, { audio, subtitle, quality, startAt, caps: detectCaps() });
@@ -381,9 +629,15 @@ function Player({ info }: { info: PlayInfo }) {
         } else {
           // Direct play, or Safari's own HLS.
           v.src = r.url;
-          v.addEventListener('loadedmetadata', () => (v.currentTime = startAt), { once: true });
+          // A party has moved on while the file opened: start where it is now.
+          v.addEventListener('loadedmetadata', () => (v.currentTime = partyRef.current ? partyPosition(partyRef.current, duration) : startAt), { once: true });
         }
-        if (start.play === false) setPlaying(false);
+        if (partyRef.current) {
+          // The party's state decides whether this plays.
+          streamReady.current = true;
+          lastAppliedSeek.current = Date.now();
+          applyPartyRef.current();
+        } else if (start.play === false) setPlaying(false);
         else v.play().catch(() => setPlaying(false));
       } catch (err) {
         if (!cancelled) setError((err as Error).message);
@@ -440,7 +694,10 @@ function Player({ info }: { info: PlayInfo }) {
   }, [subtitle, base, info.subtitles, info.hasFonts]);
 
   /** Restarts the stream from where we are (new audio track, picture subtitles or quality). */
-  const restartHere = () => setStart({ at: Math.max(0, currentTime() - 1), play: !(video.current?.paused ?? false) });
+  const restartHere = () =>
+    partyRef.current
+      ? setStart({ at: partyPosition(partyRef.current, duration) }) // the party's state decides play/pause
+      : setStart({ at: Math.max(0, currentTime() - 1), play: !(video.current?.paused ?? false) });
 
   // While paused the player stops asking for video, and the server ends a stream nobody asks for in a
   // minute. So check in every 20 s while paused (up to 30 min; after that a restart picks up where you were).
@@ -484,6 +741,19 @@ function Player({ info }: { info: PlayInfo }) {
 
   const togglePlay = () => {
     const v = video.current!;
+    if (party) {
+      const s = party.state;
+      // The party plays but the browser wouldn't start this video without a click: this is that click.
+      if (s?.playing && v.paused && streamReady.current && expectedPosition(s, party.clock.now()) < duration - 0.5) {
+        playBlocked.current = false;
+        applyParty();
+        if (v.paused) applyPlay();
+        return;
+      }
+      // Everyone's video changes when the party's new state comes back.
+      party.send(s?.playing ? { t: 'pause' } : { t: 'play' });
+      return;
+    }
     if (v.paused) v.play().catch(() => undefined);
     else v.pause();
   };
@@ -491,6 +761,11 @@ function Player({ info }: { info: PlayInfo }) {
     if (byUser) lastUserSeek.current = Date.now();
     const v = video.current!;
     const to = Math.min(Math.max(0, t), duration - 0.5);
+    if (party) {
+      party.send({ t: 'seek', p: to });
+      setTime(to); // the bar moves right away; the video follows the party's answer
+      return;
+    }
     v.currentTime = to;
     setTime(to); // the bar and clock move right away, before the new frame arrives
   };
@@ -513,15 +788,21 @@ function Player({ info }: { info: PlayInfo }) {
     saveProgress();
     navigate(`/watch/${to.kind}/${to.id}`, { replace: true });
   };
-  const goNext = () => goTo(info.next);
-  const goPrev = () => goTo(info.prev);
+  // In a party, Next moves everyone (the party page follows the new title); there's no Previous.
+  const partyNext = () => {
+    if (!party || !info.next || info.kind !== 'episode') return;
+    party.send({ t: 'next', from: info.id });
+    setCountdown(null);
+  };
+  const goNext = () => (party ? partyNext() : goTo(info.next));
+  const goPrev = () => (party ? undefined : goTo(info.prev));
 
   // Controls: shown on any real mouse movement, hidden 3 s later while playing. They stay up while the
   // pointer is on them or a menu is open. Chrome also sends "moves" when nothing moved (e.g. when the
   // cursor hides in fullscreen); those are ignored, or the controls would flash back right after hiding.
   const overControls = useRef(false);
   const menuOpen = useRef(false);
-  menuOpen.current = menu !== null;
+  menuOpen.current = menu !== null || partyMenu !== null;
   const lastPointer = useRef<{ x: number; y: number } | null>(null);
   const shown = useRef(true);
   /** Diagnostics (Shift+D): what the mouse and the controls are doing. */
@@ -620,6 +901,7 @@ function Player({ info }: { info: PlayInfo }) {
       else if (e.key === 'D' && e.shiftKey) setDebug((v) => !v);
       else if (e.key === 'P' && e.shiftKey) goPrev();
       else if (e.key === 'Escape' && menu) setMenu(null);
+      else if (e.key === 'Escape' && partyMenu) setPartyMenu(null);
       else return;
       e.preventDefault();
       poke();
@@ -782,16 +1064,38 @@ function Player({ info }: { info: PlayInfo }) {
         ref={video}
         className="watch-video"
         playsInline
+        // A party video waits paused for the others, so it should keep loading meanwhile.
+        preload={party ? 'auto' : undefined}
         onClick={togglePlay}
         onDoubleClick={fullscreen}
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          setPlaying(true);
+          if (party) onPartyMedia('play');
+        }}
         onPause={() => {
           setPlaying(false);
           saveProgress();
+          if (party) {
+            stalled.current = false;
+            onPartyMedia('pause');
+          }
         }}
-        onWaiting={() => setWaiting(true)}
-        onPlaying={() => setWaiting(false)}
-        onCanPlay={() => setWaiting(false)}
+        onWaiting={() => {
+          setWaiting(true);
+          if (party) onPartyWaiting();
+        }}
+        onPlaying={() => {
+          setWaiting(false);
+          if (party) stalled.current = false;
+        }}
+        onCanPlay={() => {
+          setWaiting(false);
+          if (party) {
+            stalled.current = false;
+            checkReadyRef.current();
+          }
+        }}
+        onProgress={party ? () => checkReadyRef.current() : undefined}
         onTimeUpdate={(e) => {
           const v = e.currentTarget;
           setTime(v.currentTime);
@@ -840,10 +1144,23 @@ function Player({ info }: { info: PlayInfo }) {
           <button className="btn primary" onClick={restartHere}>
             Try again
           </button>
-          <button className="btn" onClick={() => navigate(-1)}>
-            Back
-          </button>
+          {!party?.guest && (
+            <button className="btn" onClick={() => navigate(-1)}>
+              Back
+            </button>
+          )}
         </div>
+      )}
+
+      {party && party.waitingFor.length > 0 && (
+        <div className="watch-party-wait" role="status">
+          {waitingLabel(party.waitingFor)}
+        </div>
+      )}
+      {party && blocked && !playing && party.state?.playing && !error && (
+        <button className="btn primary watch-party-start" onClick={togglePlay}>
+          ▶ Play
+        </button>
       )}
 
       {skipNote && (
@@ -879,13 +1196,68 @@ function Player({ info }: { info: PlayInfo }) {
 
       {debug && <DiagReadout diag={diag} controls={controls} playing={playing} shell={shell} />}
       <div className="watch-top" {...onControls}>
-        <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
-          ←
-        </button>
+        {!party?.guest && (
+          <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>
+            ←
+          </button>
+        )}
         <div className="watch-title">
           <strong>{info.title}</strong>
           {info.subtitle && <span>{info.subtitle}</span>}
         </div>
+        {party && (
+          <>
+            <span className="watch-spacer" />
+            <div
+              className="watch-party-wrap"
+              // Hover shows the names with a mouse; a tap (the button) toggles them.
+              onPointerEnter={(e) => e.pointerType === 'mouse' && partyMenu === null && setPartyMenu('members')}
+              onPointerLeave={(e) => e.pointerType === 'mouse' && partyMenu === 'members' && setPartyMenu(null)}
+            >
+              <button
+                className="watch-party-count"
+                aria-expanded={partyMenu === 'members'}
+                onClick={() => setPartyMenu(partyMenu === 'members' ? null : 'members')}
+              >
+                {party.status === 'live' ? `👥 ${party.members.filter((m) => m.connected).length} watching` : 'Reconnecting…'}
+              </button>
+              {partyMenu === 'members' && (
+                <div className="watch-menu watch-party-pop" role="dialog" aria-label="Watching">
+                  {party.members
+                    .filter((m) => m.connected)
+                    .map((m) => (
+                      <div key={m.key} className="watch-party-member">
+                        {m.name}
+                        {m.buffering && <small>loading</small>}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+            <div className="watch-party-wrap">
+              <button
+                className="watch-icon"
+                aria-label="Party options"
+                aria-expanded={partyMenu === 'more'}
+                onClick={() => setPartyMenu(partyMenu === 'more' ? null : 'more')}
+              >
+                ⋯
+              </button>
+              {partyMenu === 'more' && (
+                <div className="watch-menu watch-party-pop" role="menu" aria-label="Party options">
+                  <button className="watch-row" role="menuitem" onClick={() => { setPartyMenu(null); party.onLeave(); }}>
+                    <span>Leave party</span>
+                  </button>
+                  {party.isHost && (
+                    <button className="watch-row" role="menuitem" onClick={() => { setPartyMenu(null); party.onEnd(); }}>
+                      <span>End party for everyone</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="watch-bottom" onClick={(e) => e.stopPropagation()} {...onControls}>
@@ -950,7 +1322,7 @@ function Player({ info }: { info: PlayInfo }) {
           />
         </div>
         <div className="watch-bar">
-          {info.kind === 'episode' && (
+          {info.kind === 'episode' && !party && (
             <button className="watch-icon" aria-label="Previous episode" title={info.prev ? `Previous: ${info.prev.label} (Shift+P)` : 'No previous episode'} disabled={!info.prev} onClick={goPrev}>
               ⏮
             </button>
@@ -958,7 +1330,7 @@ function Player({ info }: { info: PlayInfo }) {
           <button className="watch-icon" aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlay}>
             {playing ? '❚❚' : '▶'}
           </button>
-          {info.kind === 'episode' && (
+          {info.kind === 'episode' && !party?.guest && (
             <button className="watch-icon" aria-label="Next episode" title={info.next ? `Next: ${info.next.label} (Shift+N)` : 'No next episode'} disabled={!info.next} onClick={goNext}>
               ⏭
             </button>
@@ -1030,13 +1402,15 @@ function Player({ info }: { info: PlayInfo }) {
                 {menuRow('Audio', audioLabel, 'audio')}
                 {menuRow('Subtitles', subtitleLabel, 'subtitles')}
                 {menuRow('Quality', QUALITY_LABEL[quality], 'quality')}
-                <button className="watch-row" role="menuitemcheckbox" aria-checked={autoSkip} onClick={toggleAutoSkip}>
-                  <span>
-                    Auto-skip intro &amp; credits
-                    <small className="watch-row-hint">{info.next ? 'Credits go straight to the next episode' : 'Jumps past them when they start'}</small>
-                  </span>
-                  <span className={`watch-switch${autoSkip ? ' on' : ''}`} aria-hidden />
-                </button>
+                {!party && (
+                  <button className="watch-row" role="menuitemcheckbox" aria-checked={autoSkip} onClick={toggleAutoSkip}>
+                    <span>
+                      Auto-skip intro &amp; credits
+                      <small className="watch-row-hint">{info.next ? 'Credits go straight to the next episode' : 'Jumps past them when they start'}</small>
+                    </span>
+                    <span className={`watch-switch${autoSkip ? ' on' : ''}`} aria-hidden />
+                  </button>
+                )}
                 {mode && (
                   <div className="watch-menu-note">
                     {mode.mode === 'direct' ? 'Playing the original file — no conversion needed.' : `Converting for this browser: ${mode.reason.charAt(0).toLowerCase()}${mode.reason.slice(1)}.`}

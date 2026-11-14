@@ -7,6 +7,7 @@ export default defineConfig({
   worker: { format: 'es' },
   server: {
     port: 5173,
-    proxy: { '/api': 'http://localhost:7979' },
+    // ws: the watch-party sync socket (/api/party/:id/socket).
+    proxy: { '/api': { target: 'http://localhost:7979', ws: true } },
   },
 });

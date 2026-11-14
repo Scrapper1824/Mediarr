@@ -219,6 +219,40 @@ export interface AuthStatus {
   user: { id: number; username: string; role: 'admin' | 'user'; needsApproval: boolean; allowAdult: boolean; totpEnabled: boolean; sessions: number } | null;
 }
 
+// ---- Watch Together ----
+
+export interface PartyTitle {
+  kind: 'movie' | 'episode';
+  id: number;
+}
+/** Server-time playback state: `position` (s) is valid at server ms `at`, and advances from then while playing. */
+export interface PartyPlayState {
+  playing: boolean;
+  position: number;
+  at: number;
+  version: number;
+}
+export interface PartyMember {
+  key: string;
+  name: string;
+  connected: boolean;
+  buffering: boolean;
+}
+export interface PartyInfo {
+  id: string;
+  title: PartyTitle;
+  mediaId: number;
+  titleLabel: string;
+  subtitle: string | null;
+  poster: string | null;
+  hostUserId: number;
+  isHost: boolean;
+  guestInviteAllowed: boolean;
+  members: PartyMember[];
+  state: PartyPlayState;
+  ended: boolean;
+}
+
 export const api = {
   get: <T>(url: string) => request<T>('GET', url),
   post: <T>(url: string, body: unknown = {}) => request<T>('POST', url, body),

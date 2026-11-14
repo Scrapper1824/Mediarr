@@ -15,6 +15,7 @@ import StorageBars from './components/StorageBars';
 
 // The player (hls.js + subtitle renderer) only loads when something is played.
 const Watch = lazy(() => import('./pages/Watch'));
+const Party = lazy(() => import('./pages/Party'));
 // Loaded when first opened, so the first page shows sooner.
 const Detail = lazy(() => import('./pages/Detail'));
 const Queue = lazy(() => import('./pages/Queue'));
@@ -58,6 +59,14 @@ export default function App() {
     return (
       <Routes>
         <Route path="/watch/:kind/:id" element={<Suspense fallback={<div className="watch watch-message">Loading…</div>}><Watch /></Suspense>} />
+      </Routes>
+    );
+  }
+  // Watch parties use the full-screen player too (guest links never get here: see main.tsx).
+  if (location.pathname.startsWith('/party/')) {
+    return (
+      <Routes>
+        <Route path="/party/:id" element={<Suspense fallback={<div className="watch watch-message">Loading…</div>}><Party /></Suspense>} />
       </Routes>
     );
   }
