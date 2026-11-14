@@ -526,6 +526,38 @@ describe('party socket: ending and leaving', () => {
     expect(got).toBeLessThan(64 * 1024 * 1024);
   });
 
+  it('next cuts a guest’s open direct stream of the previous episode', async () => {
+    const { alice } = await users();
+    const show = addShow('Bluey');
+    const file = db.prepare('SELECT file_path FROM episodes WHERE id = ?').get(show.eps[0]) as { file_path: string };
+    fs.truncateSync(file.file_path, 64 * 1024 * 1024);
+    const party = await startParty(alice.cookie, show.eps[0]);
+    const guest = await guestOf(alice.cookie, party);
+    const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
+      http.get(`${base}/api/play/direct/episode/${show.eps[0]}`, { headers: { cookie: guest, range: 'bytes=0-' } }, resolve).on('error', reject);
+    });
+    expect(res.statusCode).toBe(206);
+    let got = 0;
+    let stall = true;
+    const done = new Promise<{ complete: boolean }>((resolve) => {
+      res.on('data', (d: Buffer) => {
+        got += d.length;
+        if (stall) res.pause();
+      });
+      res.on('close', () => resolve({ complete: res.complete }));
+      res.on('error', () => undefined);
+    });
+    await waitFor(() => got > 0);
+    const a = await connectAs(party, alice.cookie);
+    a.send({ t: 'next' });
+    await a.next((m) => isState(m) && m.title.id === show.eps[1]);
+    expect(getParty(party)).not.toBeNull(); // the party goes on; only the old stream is cut
+    stall = false;
+    res.resume();
+    expect((await done).complete).toBe(false);
+    expect(got).toBeLessThan(64 * 1024 * 1024);
+  });
+
   it('a guest who leaves is disconnected', async () => {
     const { alice } = await users();
     const party = await startParty(alice.cookie, addShow('Bluey').eps[0]);

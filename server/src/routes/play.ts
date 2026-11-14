@@ -14,7 +14,8 @@ import { queueMediaWork, workPending } from '../playback/jobs.js';
 import { getSegments } from '../playback/segments.js';
 import { trickplayManifest, trickplaySheet } from '../playback/trickplay.js';
 import { inTitleDirs } from '../core/rootFolders.js';
-import { getParty, isPartyMember, onPartyEnded, onPartyLeft } from '../party/store.js';
+import type { Party } from '../party/state.js';
+import { getParty, isPartyMember, onPartyAdvanced, onPartyEnded, onPartyLeft } from '../party/store.js';
 
 type Kind = 'movie' | 'episode';
 
@@ -125,7 +126,8 @@ function ownSession(req: FastifyRequest, id: string) {
 
 /**
  * Open direct (whole-file) responses of each party guest (by guest id). A long download outlives the
- * per-request guest check, so these are cut the moment the guest's party ends or they leave it.
+ * per-request guest check, so these are cut the moment the guest's party ends, moves to another title
+ * (a guest only ever reaches the current one), or they leave it.
  */
 const guestDirect = new Map<number, Set<FastifyReply['raw']>>();
 
@@ -137,14 +139,18 @@ function cutGuestStreams(guestId: number) {
 
 /** Watching: every signed-in user can play titles that are in the library. */
 export async function playRoutes(app: FastifyInstance) {
-  const offEnded = onPartyEnded((p) => {
+  const cutPartyGuests = (p: Party) => {
     for (const m of p.members.values()) if (m.principal.type === 'guest') cutGuestStreams(m.principal.guestId);
-  });
+  };
+  const offEnded = onPartyEnded(cutPartyGuests);
+  // Every guest stream is of the old title then (they reach only the current one); clients reload anyway.
+  const offAdvanced = onPartyAdvanced(cutPartyGuests);
   const offLeft = onPartyLeft((_p, key) => {
     if (key.startsWith('g:')) cutGuestStreams(Number(key.slice(2)));
   });
   app.addHook('onClose', async () => {
     offEnded();
+    offAdvanced();
     offLeft();
   });
 

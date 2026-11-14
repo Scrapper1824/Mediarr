@@ -7,7 +7,7 @@ import {
   advance, applyCommand, connect, disconnect, MAX_LEAD_MS, principalKey, setBuffering, tickBuffering,
   type Party, type Principal,
 } from './state.js';
-import { getParty, onPartyEnded, onPartyLeft } from './store.js';
+import { getParty, onPartyEnded, onPartyLeft, partyAdvanced } from './store.js';
 
 /** Commands (play/pause/seek/buffering/next) a socket may send per second; more are dropped. */
 export const MAX_COMMANDS_PER_SEC = 20;
@@ -185,6 +185,7 @@ function onMessage(c: Conn, data: Buffer | ArrayBuffer | Buffer[], isBinary: boo
       const next = nextEpisode(p);
       if (!next) return;
       advance(p, p.mediaId, next, now);
+      partyAdvanced(p);
       if (room) room.lastNextAt = now;
       broadcast(p);
       return;

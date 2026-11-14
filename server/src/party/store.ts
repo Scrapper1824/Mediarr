@@ -18,6 +18,7 @@ const inviteCodes = new Map<string, string>();
 const invitedUsers = new Map<string, Set<number>>();
 const endedListeners: ((p: Party) => void)[] = [];
 const leftListeners: ((p: Party, key: string) => void)[] = [];
+const advancedListeners: ((p: Party) => void)[] = [];
 /** Guest ids are unique across parties: they're playback session owners (-guestId). */
 let guestSeq = 0;
 
@@ -71,6 +72,18 @@ function tell<A extends unknown[]>(listeners: ((...a: A) => void)[], ...args: A)
     }
   }
 }
+
+/** Called with each party that moves to another title (guests' streams of the old one are cut). */
+export function onPartyAdvanced(cb: (p: Party) => void): () => void {
+  advancedListeners.push(cb);
+  return () => {
+    const i = advancedListeners.indexOf(cb);
+    if (i >= 0) advancedListeners.splice(i, 1);
+  };
+}
+
+/** Tells listeners a party just moved to another title (call right after `advance`). */
+export const partyAdvanced = (p: Party) => tell(advancedListeners, p);
 
 /** Ends a party for everyone: its streams stop and every guest cookie for it stops working. */
 export function endParty(id: string): void {
