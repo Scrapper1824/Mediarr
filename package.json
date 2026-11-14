@@ -16,7 +16,7 @@
     "start": "node scripts/start.mjs",
     "console": "node server/dist/index.js",
     "tray": "wscript tray/Mediarr.vbs",
-    "test": "npm test -w server",
+    "test": "npm test -w server && npm test -w web",
     "reset-password": "node server/dist/resetPassword.js",
     "release": "node scripts/release.mjs"
   },
