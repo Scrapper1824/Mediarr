@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 // The light build: audio and subtitle tracks are handled by the server, so the rest of hls.js isn't needed.
 import Hls from 'hls.js/light';
 import type JASSUB from 'jassub';
 import { api } from '../api';
+import InvitePanel from '../components/InvitePanel';
 import { useAuth } from '../components/AuthGate';
 import { detectCaps } from '../player/caps';
 import { correction, expectedPosition, isEcho } from '../party/sync';
@@ -367,6 +368,30 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
   /** Tell the party once this stream can play (after each stream start and after reporting a stall). */
   const needReady = useRef(false);
   const [partyMenu, setPartyMenu] = useState<null | 'members' | 'more'>(null);
+  // Invite (accounts only): from a normal player the first click starts a party and moves into it.
+  const canInvite = !!user && !party?.guest;
+  const location = useLocation();
+  const [inviteOpen, setInviteOpen] = useState(() => !!party && !party.guest && new URLSearchParams(location.search).has('invite'));
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  useEffect(() => {
+    // The ?invite=1 that brought us here is used up.
+    if (new URLSearchParams(window.location.search).has('invite')) window.history.replaceState(window.history.state, '', window.location.pathname);
+  }, []);
+  const onInvite = async () => {
+    setPartyMenu(null);
+    if (party) return setInviteOpen((o) => !o);
+    if (inviteBusy) return;
+    setInviteBusy(true);
+    setInviteError(null);
+    try {
+      const r = await api.post<{ id: string }>('/api/party', { kind: info.kind, id: info.id, position: currentTime() });
+      navigate(`/party/${encodeURIComponent(r.id)}?invite=1`, { replace: true });
+    } catch (e) {
+      setInviteError((e as Error).message);
+      setInviteBusy(false);
+    }
+  };
 
   const markApplied = (type: 'play' | 'pause' | 'seek', position: number) => {
     const now = Date.now();
@@ -802,7 +827,7 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
   // cursor hides in fullscreen); those are ignored, or the controls would flash back right after hiding.
   const overControls = useRef(false);
   const menuOpen = useRef(false);
-  menuOpen.current = menu !== null || partyMenu !== null;
+  menuOpen.current = menu !== null || partyMenu !== null || inviteOpen;
   const lastPointer = useRef<{ x: number; y: number } | null>(null);
   const shown = useRef(true);
   /** Diagnostics (Shift+D): what the mouse and the controls are doing. */
@@ -902,6 +927,7 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
       else if (e.key === 'P' && e.shiftKey) goPrev();
       else if (e.key === 'Escape' && menu) setMenu(null);
       else if (e.key === 'Escape' && partyMenu) setPartyMenu(null);
+      else if (e.key === 'Escape' && inviteOpen) setInviteOpen(false);
       else return;
       e.preventDefault();
       poke();
@@ -1205,9 +1231,26 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
           <strong>{info.title}</strong>
           {info.subtitle && <span>{info.subtitle}</span>}
         </div>
+        {(party || canInvite) && <span className="watch-spacer" />}
+        {canInvite && (
+          <div className="watch-party-wrap">
+            <button
+              className="watch-party-count"
+              aria-expanded={inviteOpen}
+              aria-haspopup="dialog"
+              disabled={inviteBusy}
+              title={inviteError ?? undefined}
+              onClick={onInvite}
+            >
+              {inviteBusy ? 'Starting…' : inviteError ? '👥 Invite (retry)' : '👥 Invite'}
+            </button>
+            {party && inviteOpen && (
+              <InvitePanel partyId={party.id} mediaId={info.mediaId} guestInviteAllowed={party.guestInviteAllowed} onClose={() => setInviteOpen(false)} />
+            )}
+          </div>
+        )}
         {party && (
           <>
-            <span className="watch-spacer" />
             <div
               className="watch-party-wrap"
               // Hover shows the names with a mouse; a tap (the button) toggles them.

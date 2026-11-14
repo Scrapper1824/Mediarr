@@ -12,6 +12,9 @@ import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
 import Icon, { type IconName } from './components/Icon';
 import Logo from './components/Logo';
 import StorageBars from './components/StorageBars';
+import NotificationBell from './components/NotificationBell';
+import InvitePopup from './components/InvitePopup';
+import { useNotifications } from './notifications';
 
 // The player (hls.js + subtitle renderer) only loads when something is played.
 const Watch = lazy(() => import('./pages/Watch'));
@@ -124,7 +127,8 @@ function Shell() {
       document.body.style.overflow = overflow;
     };
   }, [menuOpen]);
-  const badges = activeCount + pendingRequests;
+  const unreadInvites = useNotifications().data?.unread ?? 0;
+  const badges = activeCount + pendingRequests + unreadInvites;
 
   return (
     <div className="shell">
@@ -185,6 +189,7 @@ function Shell() {
             <strong>{auth.data?.user?.username}</strong>
             <span>{isAdmin ? 'Admin' : 'Viewer'}</span>
           </span>
+          <NotificationBell />
           <button className="icon-btn" onClick={() => logout.mutate()} disabled={logout.isPending} title="Sign out" aria-label="Sign out">
             <Icon name="signout" size={18} />
           </button>
@@ -212,6 +217,7 @@ function Shell() {
         </Suspense>
       </main>
       <SearchAlerts />
+      <InvitePopup />
     </div>
   );
 }

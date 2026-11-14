@@ -1435,3 +1435,60 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 }
 .watch-party-start { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; font-size: 17px; padding: 12px 26px; }
 @media (max-width: 640px) { .watch-party-count { font-size: 13px; padding: 0 10px; } }
+
+/* ---------- Watch Together: Invite panel, 🔔 menu, invite popup ---------- */
+.invite-panel { width: min(330px, calc(100vw - 24px)); padding: 10px; gap: 6px; }
+.invite-title { font-size: 13px; font-weight: 700; color: #fff; padding: 2px 4px 4px; }
+.invite-search {
+  width: 100%; box-sizing: border-box; background: rgba(255, 255, 255, 0.08); border: 1px solid #333; border-radius: 9px;
+  color: #eee; font: inherit; font-size: 14px; padding: 8px 10px;
+}
+.invite-search:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.invite-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
+.invite-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 4px; }
+.invite-name { font-size: 14px; color: #eee; overflow-wrap: anywhere; min-width: 0; }
+.watch-menu .invite-btn {
+  flex: none; background: rgba(255, 255, 255, 0.12); color: #fff; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+}
+.watch-menu .invite-btn:disabled { opacity: 0.7; cursor: default; background: transparent; color: var(--accent); }
+.invite-guest { border-top: 1px solid #2c2c2c; margin-top: 4px; padding-top: 4px; }
+.invite-link {
+  width: 100%; box-sizing: border-box; background: rgba(255, 255, 255, 0.08); border: 1px solid #333; border-radius: 8px;
+  color: #eee; font: inherit; font-size: 12px; padding: 6px 8px; margin-top: 4px;
+}
+.invite-link[hidden] { display: none; }
+.invite-note { font-size: 13px; color: #8a8a8a; padding: 6px 4px; }
+.invite-error { color: var(--danger); }
+@media (max-width: 640px) {
+  /* The top bar is the containing block (it is transformed), so this spans the screen under it. */
+  .invite-panel { position: fixed; top: 62px; left: 12px; right: 12px; width: auto; bottom: auto; }
+}
+
+.bell { position: relative; }
+.bell-badge {
+  position: absolute; top: -2px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 10px; font-weight: 800; line-height: 16px; text-align: center;
+}
+.bell-menu {
+  position: fixed; z-index: 1000; max-height: min(60vh, 420px); overflow-y: auto; box-sizing: border-box;
+  background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 12px; padding: 6px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.bell-empty { color: var(--muted); font-size: 13px; padding: 14px 10px; text-align: center; }
+.bell-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; }
+.bell-item + .bell-item { border-top: 1px solid var(--line); }
+.bell-text { flex: 1; min-width: 0; font-size: 13px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
+.bell-text strong { color: var(--text); font-weight: 600; }
+.bell-ended { flex: none; font-size: 12px; color: var(--muted); }
+.bell-x { flex: none; font-size: 18px; line-height: 1; width: 26px; height: 26px; padding: 0; }
+
+.invite-popup {
+  position: fixed; right: 18px; bottom: 18px; z-index: 900; width: min(320px, calc(100vw - 24px)); box-sizing: border-box;
+  background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 14px; padding: 14px 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55); animation: fade-in 0.2s ease-out;
+}
+.invite-popup-head { font-size: 13px; color: var(--muted); }
+.invite-popup-title { font-size: 16px; font-weight: 650; margin: 4px 0 12px; overflow-wrap: anywhere; }
+.invite-popup-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 760px) { .invite-popup { right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .invite-popup { animation: none; } }

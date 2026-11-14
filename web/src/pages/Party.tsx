@@ -56,6 +56,8 @@ function PartyRoom({ id, guest, onLeft }: { id: string; guest: boolean; onLeft?:
     waitingFor: p.waitingFor,
     clock: p.clock,
     guest,
+    id,
+    guestInviteAllowed: !!p.party?.guestInviteAllowed,
     isHost: !!p.party?.isHost,
     status: p.status,
     connection: p.connection,

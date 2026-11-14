@@ -35,6 +35,9 @@ export interface PartyBinding {
   waitingFor: string[];
   clock: Clock;
   guest: boolean;
+  /** The party's id and whether guest links are allowed (not for 18+ titles); used by the Invite panel. */
+  id: string;
+  guestInviteAllowed: boolean;
   isHost: boolean;
   status: PartyStatus;
   connection: number;
