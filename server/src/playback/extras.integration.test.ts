@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { db, initDb, now } from '../db.js';
 import { findFfmpeg, run, usePlaybackDataDir } from './ffmpeg.js';
 import { analyseSeason, getSegments } from './segments.js';
@@ -9,6 +9,8 @@ import { makeTrickplay, trickplaySheet } from './trickplay.js';
 
 /** Intro detection and seek-bar thumbnails with real FFmpeg (skipped without it). */
 initDb(':memory:');
+// This tests Mediarr's own detection: TheIntroDB has nothing for these made-up episodes (and isn't asked over the internet).
+vi.stubGlobal('fetch', async () => new Response('{"error":"not found"}', { status: 404 }));
 const tools = findFfmpeg();
 
 // The same "opening song" in every episode; each episode's own scenes sound different.

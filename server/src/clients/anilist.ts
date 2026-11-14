@@ -796,3 +796,20 @@ export async function filterAnime(f: AnimeFilter, page: number, perPage = 30, ad
       })),
   };
 }
+
+// ---- MyAnimeList ids (for AniSkip) ----
+
+const malCache = new Map<number, { idMal: number | null; episodes: number | null }>();
+
+/** Each AniList entry's MyAnimeList id and episode count (remembered; they don't change). */
+export async function malIdsFor(ids: number[]): Promise<Map<number, { idMal: number | null; episodes: number | null }>> {
+  const missing = ids.filter((id) => !malCache.has(id));
+  if (missing.length) {
+    const data = await gql<{ Page: { media: { id: number; idMal: number | null; episodes: number | null }[] } }>(
+      'query ($ids: [Int]) { Page(perPage: 50) { media(id_in: $ids, type: ANIME) { id idMal episodes } } }',
+      { ids: missing },
+    );
+    for (const m of data.Page.media) malCache.set(m.id, { idMal: m.idMal, episodes: m.episodes });
+  }
+  return new Map(ids.filter((id) => malCache.has(id)).map((id) => [id, malCache.get(id)!]));
+}

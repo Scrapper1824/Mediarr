@@ -73,7 +73,9 @@ export function queueMediaWork(mediaId: number, opts: { urgent?: boolean; focusE
     const file = media.file_path;
     if (!file || !fs.existsSync(file)) return;
     if (s.trickplay && !trickplayManifest(file)) enqueue(`thumbs:${file}`, () => makeTrickplay(file), opts.urgent);
-    if (s.introDetection && !analysed(file, 'segments')) enqueue(`segments:${file}`, () => analyseMovie(file), opts.urgent);
+    if (s.introDetection && (!analysed(file, 'segments') || (!!media.tmdb_id && !analysed(file, 'introdb')))) {
+      enqueue(`segments:${file}`, () => analyseMovie(file, media.tmdb_id), opts.urgent);
+    }
     return;
   }
 
@@ -86,7 +88,11 @@ export function queueMediaWork(mediaId: number, opts: { urgent?: boolean; focusE
   if (s.introDetection) {
     const seasons = [...new Set(ordered.map((e) => e.season))];
     for (const season of seasons) {
-      if (ordered.some((e) => e.season === season && !analysed(e.file_path!, 'segments'))) {
+      const pending = (e: (typeof ordered)[number]) =>
+        !analysed(e.file_path!, 'segments') ||
+        (media.type === 'anime' && !analysed(e.file_path!, 'aniskip')) ||
+        (media.type === 'show' && !!media.tmdb_id && !analysed(e.file_path!, 'introdb'));
+      if (ordered.some((e) => e.season === season && pending(e))) {
         enqueue(`segments:${mediaId}:${season}`, () => analyseSeason(mediaId, season), urgentFor(season));
       }
     }

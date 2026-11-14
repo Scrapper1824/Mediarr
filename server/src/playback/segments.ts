@@ -1,5 +1,9 @@
 import fs from 'node:fs';
-import { db, getEpisodes, getMedia, now } from '../db.js';
+import { aniSkipTimes, SAME_CUT_SECONDS } from '../clients/aniskip.js';
+import { malIdsFor } from '../clients/anilist.js';
+import { IntroDbBusy, introDbTimes } from '../clients/theintrodb.js';
+import { seasonsFor } from '../core/library.js';
+import { db, getEpisodes, getMedia, now, type EpisodeRow, type MediaRow } from '../db.js';
 import { findFfmpeg, runBinary } from './ffmpeg.js';
 import { probeFile, type Chapter } from './probe.js';
 
@@ -173,11 +177,15 @@ export function getSegments(file: string, duration?: number | null): Partial<Rec
   return placeSegments(Object.fromEntries(rows.map((r) => [r.kind, { start: r.start, end: r.end }])), duration);
 }
 
-function saveSegment(file: string, kind: SegmentKind, seg: Segment, source: 'chapters' | 'audio') {
+function saveSegment(file: string, kind: SegmentKind, seg: Segment, source: 'chapters' | 'aniskip' | 'introdb' | 'audio') {
   db.prepare(
     `INSERT INTO media_segments (file, kind, start, end, source) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(file, kind) DO UPDATE SET start = excluded.start, end = excluded.end, source = excluded.source`,
   ).run(file, kind, seg.start, seg.end, source);
+}
+
+function deleteSegment(file: string, kind: SegmentKind) {
+  db.prepare('DELETE FROM media_segments WHERE file = ? AND kind = ?').run(file, kind);
 }
 
 const stamp = (file: string) => {
@@ -206,20 +214,50 @@ const HEAD_SECONDS = (duration: number) => Math.min(duration, 600, Math.max(180,
 const TAIL_SECONDS = (duration: number) => Math.min(duration, 360, Math.max(180, duration * 0.25));
 
 /**
- * Finds intros and credits for a season's episodes: chapter names first, then by comparing each
- * episode's audio with its neighbours'. Episodes already analysed are skipped.
+ * Which MyAnimeList entry and episode number an anime episode is (AniSkip works by those). A season can
+ * be several AniList entries back to back (split cours), each numbered from 1.
+ */
+export async function malEpisodes(media: MediaRow, season: number, eps: EpisodeRow[]): Promise<Map<number, { malId: number; episode: number }>> {
+  const out = new Map<number, { malId: number; episode: number }>();
+  const ids = seasonsFor(media).find((x) => x.season === season)?.anilistIds ?? [];
+  if (!ids.length) return out;
+  const meta = await malIdsFor(ids);
+  let before = 0;
+  const ranges = ids.map((id) => {
+    const m = meta.get(id);
+    const from = before + 1;
+    before += m?.episodes ?? 100_000; // still airing: the rest of the season
+    return { malId: m?.idMal ?? null, from, to: before };
+  });
+  for (const e of eps) {
+    const r = ranges.find((x) => e.episode >= x.from && e.episode <= x.to);
+    if (r?.malId) out.set(e.id, { malId: r.malId, episode: e.episode - r.from + 1 });
+  }
+  return out;
+}
+
+/**
+ * Finds intros and credits for a season's episodes: chapter names first, then (anime) the times people
+ * submitted to AniSkip, then by comparing each episode's audio with its neighbours'. Episodes already
+ * analysed are skipped.
  */
 export async function analyseSeason(mediaId: number, season: number): Promise<void> {
   const media = getMedia(mediaId);
   if (!media) return;
   const eps = getEpisodes(mediaId).filter((e) => e.season === season && e.has_file && e.file_path && fs.existsSync(e.file_path));
   const todo = eps.filter((e) => !analysed(e.file_path!, 'segments'));
-  if (!todo.length) return;
+  // Anime asks AniSkip once per file, including files whose intro was guessed before AniSkip was used.
+  const skipTodo = media.type === 'anime' ? eps.filter((e) => !analysed(e.file_path!, 'aniskip')) : [];
+  // Shows ask TheIntroDB once per file the same way (TMDB numbering, which is what shows here use).
+  const introDbTodo = media.type === 'show' && media.tmdb_id ? eps.filter((e) => !analysed(e.file_path!, 'introdb')) : [];
+  if (!todo.length && !skipTodo.length && !introDbTodo.length) return;
 
   const info = new Map<string, { duration: number; head?: Uint32Array; tail?: Uint32Array; found: Partial<Record<SegmentKind, Segment>> }>();
+  const fromChapters = new Map<string, Partial<Record<SegmentKind, Segment>>>();
   for (const e of eps) {
     const probe = await probeFile(e.file_path!);
     const found = segmentsFromChapters(probe.chapters);
+    fromChapters.set(e.file_path!, found);
     info.set(e.file_path!, { duration: probe.duration, found: { ...getSegments(e.file_path!), ...found } });
     for (const [kind, seg] of Object.entries(found)) saveSegment(e.file_path!, kind as SegmentKind, seg, 'chapters');
   }
@@ -232,19 +270,89 @@ export async function analyseSeason(mediaId: number, season: number): Promise<vo
     i[part] = fp;
     return fp;
   };
+  const files = eps.map((e) => e.file_path!);
+  const neighbours = (file: string) =>
+    files.filter((f) => f !== file).sort((x, y) => Math.abs(files.indexOf(x) - files.indexOf(file)) - Math.abs(files.indexOf(y) - files.indexOf(file)));
+  const partOffset = (f: string, part: 'head' | 'tail') => (part === 'head' ? 0 : Math.max(0, info.get(f)!.duration - TAIL_SECONDS(info.get(f)!.duration)));
+
+  // Real times from AniSkip beat a guess from the audio (and replace one made earlier); chapters still win.
+  if (skipTodo.length) {
+    const mal = await malEpisodes(media, season, skipTodo).catch(() => new Map<number, { malId: number; episode: number }>());
+    for (const e of skipTodo) {
+      const file = e.file_path!;
+      const me = info.get(file)!;
+      const target = mal.get(e.id);
+      try {
+        if (target) {
+          const times = await aniSkipTimes(target.malId, target.episode, me.duration);
+          const sameCut = !times.measuredOn || Math.abs(times.measuredOn - me.duration) <= SAME_CUT_SECONDS;
+          const placed = placeSegments(times, me.duration);
+          for (const kind of ['intro', 'credits'] as const) {
+            const seg = placed[kind];
+            if (!seg || fromChapters.get(file)?.[kind]) continue;
+            if (sameCut) {
+              me.found[kind] = seg;
+              saveSegment(file, kind, seg, 'aniskip');
+              continue;
+            }
+            // A release cut differently: AniSkip's times may be shifted, but the opening/ending is just as
+            // long. Find a stretch exactly that long that this episode shares with its neighbours.
+            const length = seg.end - seg.start;
+            const part = kind === 'intro' ? 'head' : 'tail';
+            let aligned: Segment | null = null;
+            for (const other of neighbours(file).slice(0, 3)) {
+              const m = findSharedAudio(await load(file, part), await load(other, part), { minSeconds: Math.max(10, length - 8), maxSeconds: length + 8 });
+              if (!m) continue;
+              aligned = { start: m.a.start + partOffset(file, part), end: m.a.end + partOffset(file, part) };
+              break;
+            }
+            if (aligned) {
+              me.found[kind] = aligned;
+              saveSegment(file, kind, aligned, 'aniskip');
+            } else if (me.found[kind] && Math.abs(me.found[kind]!.end - me.found[kind]!.start - length) > 10) {
+              // An earlier guess that isn't even the right length isn't the opening/ending: better none.
+              deleteSegment(file, kind);
+              delete me.found[kind];
+            }
+          }
+        }
+        markAnalysed(file, 'aniskip');
+      } catch {
+        // AniSkip unreachable: try again next time
+      }
+    }
+  }
+
+  // Shows: TheIntroDB picks the times submitted for a release this long, so they're used as they are.
+  for (const e of introDbTodo) {
+    const file = e.file_path!;
+    const me = info.get(file)!;
+    try {
+      const times = placeSegments(await introDbTimes({ tmdbId: media.tmdb_id!, season: e.season, episode: e.episode, duration: me.duration }), me.duration);
+      for (const kind of ['intro', 'credits'] as const) {
+        const seg = times[kind];
+        if (!seg || fromChapters.get(file)?.[kind]) continue;
+        me.found[kind] = seg;
+        saveSegment(file, kind, seg, 'introdb');
+      }
+      markAnalysed(file, 'introdb');
+    } catch (err) {
+      if (err instanceof IntroDbBusy) break; // their limit: the rest wait for the next run
+    }
+  }
 
   // Each episode is compared with the next (or previous) ones until its intro and credits are found.
-  const files = eps.map((e) => e.file_path!);
+  if (!todo.length) return;
   for (const file of todo.map((e) => e.file_path!)) {
     const me = info.get(file)!;
-    const others = files.filter((f) => f !== file).sort((x, y) => Math.abs(files.indexOf(x) - files.indexOf(file)) - Math.abs(files.indexOf(y) - files.indexOf(file)));
+    const others = neighbours(file);
     for (const kind of ['intro', 'credits'] as const) {
       if (me.found[kind]) continue;
       const part = kind === 'intro' ? 'head' : 'tail';
       for (const other of others.slice(0, 3)) {
         const m = findSharedAudio(await load(file, part), await load(other, part), { maxSeconds: kind === 'intro' ? 130 : 200 });
         if (!m) continue;
-        const offset = (f: string) => (part === 'head' ? 0 : Math.max(0, info.get(f)!.duration - TAIL_SECONDS(info.get(f)!.duration)));
+        const offset = (f: string) => partOffset(f, part);
         const mine = { start: m.a.start + offset(file), end: m.a.end + offset(file) };
         me.found[kind] = mine;
         saveSegment(file, kind, mine, 'audio');
@@ -260,10 +368,28 @@ export async function analyseSeason(mediaId: number, season: number): Promise<vo
   }
 }
 
-/** Movies: only chapter names can say where the credits are. */
-export async function analyseMovie(file: string): Promise<void> {
-  if (analysed(file, 'segments')) return;
+/** Movies: chapter names, then TheIntroDB (there are no other episodes to compare with). */
+export async function analyseMovie(file: string, tmdbId?: number | null): Promise<void> {
+  const needChapters = !analysed(file, 'segments');
+  const needIntroDb = !!tmdbId && !analysed(file, 'introdb');
+  if (!needChapters && !needIntroDb) return;
   const probe = await probeFile(file);
-  for (const [kind, seg] of Object.entries(segmentsFromChapters(probe.chapters))) saveSegment(file, kind as SegmentKind, seg, 'chapters');
-  markAnalysed(file, 'segments');
+  const chapters = segmentsFromChapters(probe.chapters);
+  if (needChapters) {
+    for (const [kind, seg] of Object.entries(chapters)) saveSegment(file, kind as SegmentKind, seg, 'chapters');
+    markAnalysed(file, 'segments');
+  }
+  // Then TheIntroDB (by TMDB id); chapters in the file still win.
+  if (needIntroDb) {
+    try {
+      const times = placeSegments(await introDbTimes({ tmdbId: tmdbId!, duration: probe.duration }), probe.duration);
+      for (const kind of ['intro', 'credits'] as const) {
+        const seg = times[kind];
+        if (seg && !chapters[kind]) saveSegment(file, kind, seg, 'introdb');
+      }
+      markAnalysed(file, 'introdb');
+    } catch {
+      // unreachable or over their limit: asked again next time
+    }
+  }
 }
