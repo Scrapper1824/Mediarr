@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getSettings } from '../settings.js';
-import { hlsArgs, hlsPlaylist, SEGMENT_SECONDS, segmentCount, type Decision } from './decide.js';
+import { COPY_LIST, copyArgs, hlsArgs, hlsPlaylist, SEGMENT_SECONDS, segmentStarts, type Decision } from './decide.js';
 import { cacheDir, start, type Encoder } from './ffmpeg.js';
 import type { MediaProbe } from './probe.js';
 
@@ -19,6 +19,10 @@ export interface Session {
   /** The ffmpeg executable. */
   encoderPath: string;
   dir: string;
+  /** Where each piece starts (seconds): even 4 s steps when converting, the file's keyframes when copying. */
+  starts: number[];
+  /** Copying: pieces FFmpeg reported finished (they're written in place, so a file can be half done). */
+  done: Set<number>;
   proc: ChildProcess | null;
   /** First segment of the current FFmpeg run, and the next one it hasn't finished yet. */
   runStart: number;
@@ -55,7 +59,14 @@ export const gpuFallbackActive = () => gpuFailedAt > 0 && Date.now() - gpuFailed
 const usable = (e: Encoder): Encoder => (e !== 'libx264' && gpuFallbackActive() ? 'libx264' : e);
 
 const segPath = (s: Session, n: number) => path.join(s.dir, `seg${n}.ts`);
-const running = () => [...sessions.values()].filter((s) => s.proc).length;
+/** Conversions running now. Copying the video costs next to nothing, so it doesn't count against the limit. */
+const converting = () => [...sessions.values()].filter((s) => s.proc && !s.decision.copyVideo).length;
+/** A piece is ready: converting renames each finished one into place; copying lists it in COPY_LIST. */
+const isReady = (s: Session, n: number) => (!s.decision.copyVideo || s.done.has(n)) && fs.existsSync(segPath(s, n));
+
+/** Files whose video couldn't be copied (an odd stream FFmpeg can't cut); they're converted from then on. */
+const copyFailed = new Set<string>();
+export const copyFailedFor = (file: string) => copyFailed.has(file);
 
 function stopProc(s: Session) {
   if (s.proc) {
@@ -70,7 +81,13 @@ function launch(s: Session, segment: number) {
   s.runStart = segment;
   s.next = segment;
   s.error = null;
-  const proc = launcher(s.encoderPath, hlsArgs(s.file, s.probe, s.decision, s.encoder, s.dir, segment), s, segment);
+  if (s.decision.copyVideo) {
+    // This run rewrites its pieces in place, so none from here on counts as done until it lists them again.
+    for (const n of [...s.done]) if (n >= segment) s.done.delete(n);
+    fs.rmSync(path.join(s.dir, COPY_LIST), { force: true });
+  }
+  const args = s.decision.copyVideo ? copyArgs(s.file, s.probe, s.decision, s.dir, s.starts, segment) : hlsArgs(s.file, s.probe, s.decision, s.encoder, s.dir, segment);
+  const proc = launcher(s.encoderPath, args, s, segment);
   let stderr = '';
   proc.stderr!.setEncoding('utf8').on('data', (d) => (stderr = (stderr + d).slice(-4000)));
   proc.on('close', (code) => {
@@ -78,14 +95,18 @@ function launch(s: Session, segment: number) {
     s.proc = null;
     if (code === 0) return;
     const reason = stderr.trim().split('\n').pop() || `FFmpeg stopped (code ${code})`;
-    if (s.encoder !== 'libx264') {
+    if (s.encoder !== 'libx264' && !s.decision.copyVideo) {
       // The graphics card failed: carry on from where it stopped, on the CPU.
       gpuFailedAt = Date.now();
       console.warn(`[playback] ${s.encoder} failed (${reason}); converting on the CPU instead`);
       s.encoder = 'libx264';
       advance(s);
-      launch(s, Math.min(s.next, segmentCount(s.probe.duration) - 1));
+      launch(s, Math.min(s.next, s.starts.length - 1));
       return;
+    }
+    if (s.decision.copyVideo) {
+      copyFailed.add(s.file);
+      console.warn(`[playback] copying ${path.basename(s.file)} failed (${reason}); it'll be converted next time`);
     }
     s.error = reason;
   });
@@ -98,10 +119,18 @@ function launch(s: Session, segment: number) {
   s.proc = proc;
 }
 
-/** Moves `next` past every segment that's finished (FFmpeg renames each one into place when it's complete). */
+/** Moves `next` past every segment that's finished. */
 function advance(s: Session) {
-  const total = segmentCount(s.probe.duration);
-  while (s.next < total && fs.existsSync(segPath(s, s.next))) s.next++;
+  if (s.decision.copyVideo) {
+    let list = '';
+    try {
+      list = fs.readFileSync(path.join(s.dir, COPY_LIST), 'utf8');
+    } catch {
+      // nothing finished yet
+    }
+    for (const m of list.matchAll(/seg(\d+)\.ts/g)) s.done.add(Number(m[1]));
+  }
+  while (s.next < s.starts.length && isReady(s, s.next)) s.next++;
 }
 
 export interface NewSession {
@@ -113,18 +142,23 @@ export interface NewSession {
   decision: Decision;
   encoder: Encoder;
   startAt: number;
+  /** Where pieces start (copying: from the file's keyframes); even 4 s pieces when left out. */
+  starts?: number[];
 }
 
 /** Starts a transcode for one viewer. Their earlier streams end (one stream per user at a time). */
 export function createSession(n: NewSession): Session {
   for (const s of sessions.values()) if (s.userId === n.userId) endSession(s.id);
-  if (running() >= Math.max(1, getSettings().maxTranscodes)) {
+  if (!n.decision.copyVideo && converting() >= Math.max(1, getSettings().maxTranscodes)) {
     throw Object.assign(new Error('The server is busy converting other videos right now. Try again in a little while.'), { statusCode: 503 });
   }
   const id = crypto.randomBytes(16).toString('hex');
   const dir = cacheDir('transcode', id);
-  fs.writeFileSync(path.join(dir, 'main.m3u8'), hlsPlaylist(n.probe.duration));
-  const first = Math.min(Math.floor(Math.max(0, n.startAt) / SEGMENT_SECONDS), segmentCount(n.probe.duration) - 1);
+  const starts = n.starts?.length ? n.starts : segmentStarts(n.probe.duration);
+  fs.writeFileSync(path.join(dir, 'main.m3u8'), hlsPlaylist(n.probe.duration, starts));
+  // The piece the start position falls in.
+  let first = 0;
+  while (first + 1 < starts.length && starts[first + 1] <= Math.max(0, n.startAt)) first++;
   const s: Session = {
     id,
     userId: n.userId,
@@ -135,6 +169,8 @@ export function createSession(n: NewSession): Session {
     encoder: usable(n.encoder),
     encoderPath: n.ffmpeg,
     dir,
+    starts,
+    done: new Set(),
     proc: null,
     runStart: first,
     next: first,
@@ -167,25 +203,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * `gone()` says the player stopped waiting (it seeked elsewhere or closed); such requests never move FFmpeg.
  */
 export async function waitForSegment(s: Session, n: number, timeoutMs = 45_000, gone: () => boolean = () => false): Promise<string> {
-  const total = segmentCount(s.probe.duration);
+  const total = s.starts.length;
   if (!Number.isInteger(n) || n < 0 || n >= total) throw Object.assign(new Error('No such segment'), { statusCode: 404 });
   s.lastRequested = n;
   const seq = ++s.requestSeq;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (fs.existsSync(segPath(s, n))) {
-      advance(s);
-      return segPath(s, n);
-    }
-    if (gone()) throw Object.assign(new Error('The player stopped waiting'), { statusCode: 499 });
     advance(s);
-    const onTheWay = s.proc && n >= s.runStart && n <= s.next + AHEAD_WAIT;
+    if (isReady(s, n)) return segPath(s, n);
+    if (gone()) throw Object.assign(new Error('The player stopped waiting'), { statusCode: 499 });
+    // Not ready and before FFmpeg's position means it was cleared away (far behind): it has to be made again.
+    const onTheWay = s.proc && n >= s.next && n <= s.next + AHEAD_WAIT;
     // A newer request (after a seek) decides where FFmpeg runs; this one just waits for its piece.
     if (!onTheWay && seq === s.requestSeq) {
       if (!s.proc && s.error && n >= s.runStart && n <= s.next) {
         throw Object.assign(new Error(`Converting failed: ${s.error}`), { statusCode: 500 });
       }
-      if (!s.proc && running() >= Math.max(1, getSettings().maxTranscodes)) {
+      if (!s.proc && !s.decision.copyVideo && converting() >= Math.max(1, getSettings().maxTranscodes)) {
         throw Object.assign(new Error('The server is busy converting other videos right now.'), { statusCode: 503 });
       }
       launch(s, n);
@@ -218,7 +252,10 @@ export function sweep(now = Date.now()) {
     }
     advance(s);
     if (s.proc && s.next - s.lastRequested > AHEAD_STOP) stopProc(s);
-    for (let n = s.lastRequested - KEEP_BEHIND; n >= 0 && fs.existsSync(segPath(s, n)); n--) fs.rmSync(segPath(s, n), { force: true });
+    for (let n = s.lastRequested - KEEP_BEHIND; n >= 0 && fs.existsSync(segPath(s, n)); n--) {
+      fs.rmSync(segPath(s, n), { force: true });
+      s.done.delete(n);
+    }
   }
 }
 

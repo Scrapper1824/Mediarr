@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decidePlayback, hlsArgs, hlsPlaylist, segmentCount, SEGMENT_SECONDS, type ClientCaps, type PlayChoice } from './decide.js';
+import { copyArgs, decidePlayback, hlsArgs, hlsPlaylist, segmentCount, SEGMENT_SECONDS, segmentStarts, type ClientCaps, type PlayChoice } from './decide.js';
 import { parseProbe, type MediaProbe } from './probe.js';
 
 const chrome: ClientCaps = { mp4: true, webm: true, h264: true, hevc: false, av1: true, vp9: true, aac: true, mp3: true, opus: true, flac: true, ac3: false, eac3: false };
@@ -65,6 +65,51 @@ describe('direct play or convert', () => {
     expect(decidePlayback(probe(), '.mp4', chrome, { ...auto, quality: '720' }, false, 8 * MBPS)).toMatchObject({ mode: 'transcode', height: 720, videoBitrate: 4 * MBPS });
     const small = probe({ video: { index: 0, codec: 'h264', profile: null, pixFmt: 'yuv420p', bitDepth: 8, width: 1280, height: 720 } });
     expect(decidePlayback(small, '.mkv', chrome, { ...auto, quality: '1080' }, false, 8 * MBPS).height).toBeNull();
+  });
+});
+
+describe('copying the picture instead of converting it', () => {
+  it('copies H.264 from an MKV, or when only the audio needs converting', () => {
+    expect(decidePlayback(probe(), '.mkv', chrome, auto, false, 8 * MBPS)).toMatchObject({ mode: 'transcode', copyVideo: true, height: null, reason: expect.stringMatching(/MKV.*repackaged/) });
+    const ac3 = probe({ audio: [{ index: 1, order: 0, codec: 'ac3', channels: 6, language: 'eng', title: null, isDefault: true }] });
+    expect(decidePlayback(ac3, '.mp4', chrome, auto, false, 8 * MBPS)).toMatchObject({ copyVideo: true, audio: 0 });
+    expect(decidePlayback(probe(), '.mkv', chrome, { ...auto, audio: 1 }, false, 8 * MBPS)).toMatchObject({ copyVideo: true, audio: 1 });
+  });
+
+  it('converts when the picture itself has to change', () => {
+    const not = (d: { copyVideo?: boolean }) => expect(d.copyVideo).toBeFalsy();
+    not(decidePlayback(probe(), '.mkv', chrome, { ...auto, subtitle: 1 }, false, 8 * MBPS)); // picture subtitles drawn in
+    not(decidePlayback(probe(), '.mkv', chrome, { ...auto, quality: '720' }, false, 8 * MBPS)); // smaller size chosen
+    not(decidePlayback(probe({ bitrate: 20 * MBPS }), '.mkv', chrome, auto, true, 8 * MBPS)); // too big for the connection
+    const hevc = probe({ video: { index: 0, codec: 'hevc', profile: 'Main', pixFmt: 'yuv420p', bitDepth: 8, width: 1920, height: 1080 } });
+    not(decidePlayback(hevc, '.mkv', chrome, auto, false, 8 * MBPS));
+    // Still copies for a remote viewer when the file fits the limit.
+    expect(decidePlayback(probe({ bitrate: 5 * MBPS }), '.mkv', chrome, auto, true, 8 * MBPS).copyVideo).toBe(true);
+  });
+
+  it('cuts pieces at the file’s own keyframes, at least 4 s apart', () => {
+    expect(segmentStarts(10)).toEqual([0, 4, 8]);
+    expect(segmentStarts(20, [0, 2.5, 5, 7.5, 10, 12.5, 15, 17.5, 19.8])).toEqual([0, 5, 10, 15]);
+    // Long gaps between keyframes make long pieces; the playlist's target length follows.
+    const starts = segmentStarts(30, [0, 9.6, 20]);
+    expect(starts).toEqual([0, 9.6, 20]);
+    const pl = hlsPlaylist(30, starts);
+    expect(pl).toContain('#EXT-X-TARGETDURATION:11');
+    expect(pl.match(/#EXTINF:([\d.]+)/g)).toEqual(['#EXTINF:9.600', '#EXTINF:10.400', '#EXTINF:10.000']);
+  });
+
+  it('copies the video, converts the audio, and cuts relative to where the run starts', () => {
+    const d = decidePlayback(probe(), '.mkv', chrome, auto, false, 8 * MBPS);
+    const args = copyArgs('ep.mkv', probe(), d, 'dir', [0, 5, 10, 15], 1);
+    expect(args.slice(args.indexOf('-ss'), args.indexOf('-ss') + 2)).toEqual(['-ss', '5.010']);
+    expect(args[args.indexOf('-c:v') + 1]).toBe('copy');
+    expect(args[args.indexOf('-c:a') + 1]).toBe('aac');
+    expect(args[args.indexOf('-segment_times') + 1]).toBe('5.000,10.000');
+    expect(args[args.indexOf('-segment_start_number') + 1]).toBe('1');
+    expect(args).toContain('-copyts');
+    expect(args.at(-1)).toBe('dir/seg%d.ts');
+    // From the start: no seek.
+    expect(copyArgs('ep.mkv', probe(), d, 'dir', [0, 5], 0)).not.toContain('-ss');
   });
 });
 

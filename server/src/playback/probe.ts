@@ -179,3 +179,66 @@ export async function dumpFonts(file: string, probe: MediaProbe): Promise<{ dir:
   }
   return { dir, names: names.filter((n) => fs.existsSync(path.join(dir, n))) };
 }
+
+// ---- Keyframes (for copying video into stream pieces without converting it) ----
+
+/** Video keyframe times from `ffprobe -show_entries packet=pts_time,flags -of csv=p=0` output. */
+export function parseKeyframes(csv: string): number[] {
+  const out: number[] = [];
+  for (const line of csv.split('\n')) {
+    const [t, flags] = line.trim().split(',');
+    if (!flags?.includes('K')) continue;
+    const n = Number(t);
+    if (Number.isFinite(n) && n >= 0) out.push(n);
+  }
+  out.sort((a, b) => a - b);
+  return out.filter((t, i) => i === 0 || t - out[i - 1] > 0.001);
+}
+
+/**
+ * Where the video's keyframes are (seconds). Read once per file from the packet headers (nothing is
+ * decoded, so it's quick), then kept while the file is unchanged.
+ */
+const reading = new Map<string, Promise<number[]>>();
+
+export function keyframes(file: string): Promise<number[]> {
+  // One read per file at a time: a second play while it's still going waits for the same one.
+  let p = reading.get(file);
+  if (!p) {
+    p = readKeyframes(file).finally(() => reading.delete(file));
+    reading.set(file, p);
+  }
+  return p;
+}
+
+/**
+ * Keyframes if they're known within `ms` (first time: the whole file is scanned, which can take a while
+ * for a big movie on a slow drive). Otherwise null, and the read carries on so the next play has them.
+ */
+export async function keyframesWithin(file: string, ms: number): Promise<number[] | null> {
+  const p = keyframes(file).catch(() => [] as number[]);
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<null>((r) => (timer = setTimeout(() => r(null), ms)));
+  try {
+    return await Promise.race([p, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readKeyframes(file: string): Promise<number[]> {
+  const st = fs.statSync(file);
+  const cache = path.join(cacheDir('cache', 'keyframes'), `${fileKey(file)}.json`);
+  try {
+    const saved = JSON.parse(fs.readFileSync(cache, 'utf8')) as { size: number; mtime: number; times: number[] };
+    if (saved.size === st.size && saved.mtime === Math.floor(st.mtimeMs)) return saved.times;
+  } catch {
+    // not read yet
+  }
+  const { ffprobe } = requireFfmpeg();
+  const r = await run(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,flags', '-of', 'csv=p=0', file], 15 * 60_000);
+  if (r.code !== 0) throw new Error(r.stderr.trim().split('\n').pop() || 'Couldn’t read the keyframes');
+  const times = parseKeyframes(r.stdout);
+  fs.writeFileSync(cache, JSON.stringify({ size: st.size, mtime: Math.floor(st.mtimeMs), times }));
+  return times;
+}

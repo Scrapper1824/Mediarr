@@ -5,12 +5,7 @@ import { api, type Download } from './api';
 import Discover from './pages/Discover';
 import Home from './pages/Home';
 import Library from './pages/Library';
-import Detail from './pages/Detail';
-import Queue from './pages/Queue';
-import History from './pages/History';
-import Watchlist from './pages/Watchlist';
-import SettingsPage from './pages/Settings';
-import Requests, { usePendingRequests } from './pages/Requests';
+import { usePendingRequests } from './pendingRequests';
 import SearchAlerts from './components/SearchAlerts';
 import { useAuth, useIsAdmin } from './components/AuthGate';
 import UpdateDialog, { useUpdateInfo } from './components/UpdateDialog';
@@ -20,6 +15,13 @@ import StorageBars from './components/StorageBars';
 
 // The player (hls.js + subtitle renderer) only loads when something is played.
 const Watch = lazy(() => import('./pages/Watch'));
+// Loaded when first opened, so the first page shows sooner.
+const Detail = lazy(() => import('./pages/Detail'));
+const Queue = lazy(() => import('./pages/Queue'));
+const History = lazy(() => import('./pages/History'));
+const Watchlist = lazy(() => import('./pages/Watchlist'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const Requests = lazy(() => import('./pages/Requests'));
 
 interface NavItem {
   to: string;
@@ -184,6 +186,7 @@ function Shell() {
       {updating && <UpdateDialog onClose={() => setUpdating(false)} />}
       <ScrollToTop />
       <main className="content">
+        <Suspense fallback={<p className="muted">Loading…</p>}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/discover" element={<Discover />} />
@@ -197,6 +200,7 @@ function Shell() {
           <Route path="/history" element={<History />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
+        </Suspense>
       </main>
       <SearchAlerts />
     </div>

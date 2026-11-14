@@ -283,6 +283,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_media ON episodes(media_id);
 CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
+-- Home's "recently added" looks up each title's newest import; without this it reads all of history per title.
+CREATE INDEX IF NOT EXISTS idx_history_media ON history(media_id, event, created_at);
+CREATE INDEX IF NOT EXISTS idx_downloads_media ON downloads(media_id);
+CREATE INDEX IF NOT EXISTS idx_suggestions_media ON suggestions(media_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
+CREATE INDEX IF NOT EXISTS idx_media_type_tmdb ON media(type, tmdb_id);
 `;
 
 export let db: DatabaseSync;

@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { initDb } from '../db.js';
-import { decidePlayback } from './decide.js';
+import { decidePlayback, segmentStarts } from './decide.js';
 import { ffmpegInfo, findFfmpeg, run, usePlaybackDataDir } from './ffmpeg.js';
-import { dumpFonts, extractSubtitle, probeFile } from './probe.js';
+import { dumpFonts, extractSubtitle, keyframes, probeFile } from './probe.js';
 import { createSession, startPlayback, stopPlayback, waitForSegment } from './sessions.js';
 
 /** Real FFmpeg end to end. Skipped on machines without FFmpeg (install: winget install Gyan.FFmpeg). */
@@ -103,6 +103,47 @@ describe.skipIf(!tools || !FONT)('with real FFmpeg', () => {
       expect(streams.find((x) => x.codec_name === 'h264')!.height).toBe(480);
     }
     console.log(`encoder: ${info.encoder}, GPU encoders that work: ${info.hardware.join(', ') || 'none'}`);
+  }, 120_000);
+
+  it('copies H.264 from an MKV without converting it, every piece starting on its planned keyframe', async () => {
+    // H.264 with a keyframe every 2.5 s (60 frames at 24 fps) and AC-3 audio the browser can't play.
+    const mkv = path.join(tmp, 'Movie (2026).mkv');
+    const r = await run(
+      tools!.ffmpeg,
+      [
+        '-hide_banner', '-loglevel', 'error', '-y',
+        '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=24:duration=30',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:duration=30',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '60', '-keyint_min', '60', '-sc_threshold', '0',
+        '-c:a', 'ac3', mkv,
+      ],
+      120_000,
+    );
+    expect(r.code, r.stderr).toBe(0);
+    const p = await probeFile(mkv);
+    const caps = { mp4: true, webm: true, h264: true, hevc: false, av1: false, vp9: true, aac: true, mp3: true, opus: true, flac: true, ac3: false, eac3: false };
+    const d = decidePlayback(p, '.mkv', caps, { audio: null, subtitle: null, quality: 'auto' }, false, 8e6);
+    expect(d.copyVideo).toBe(true);
+    const keys = await keyframes(mkv);
+    expect(keys.slice(0, 4)).toEqual([0, 2.5, 5, 7.5]);
+    const starts = segmentStarts(p.duration, keys);
+    expect(starts).toEqual([0, 5, 10, 15, 20, 25]);
+    const check = async (s: ReturnType<typeof createSession>, n: number) => {
+      const seg = await waitForSegment(s, n, 60_000);
+      const pr = await run(tools!.ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_name,height', '-of', 'json', seg], 30_000);
+      const streams = JSON.parse(pr.stdout).streams as { codec_name: string; height?: number }[];
+      expect(streams.map((x) => x.codec_name).sort()).toEqual(['aac', 'h264']);
+      expect(streams.find((x) => x.codec_name === 'h264')!.height).toBe(720); // the original picture
+      const pk = await run(tools!.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,flags', '-read_intervals', '%+#1', '-of', 'json', seg], 30_000);
+      const first = (JSON.parse(pk.stdout).packets as { pts_time: string; flags: string }[])[0];
+      expect(Math.abs(Number(first.pts_time) - starts[n]), `piece ${n} starts at ${first.pts_time}`).toBeLessThan(0.1);
+      expect(first.flags).toContain('K');
+    };
+    const s = createSession({ userId: 3, title: 'movie:1', file: mkv, ffmpeg: tools!.ffmpeg, probe: p, decision: d, encoder: 'libx264', startAt: 0, starts });
+    for (const n of [0, 1, 2]) await check(s, n);
+    // Starting part-way in (a resume or a seek) lands on the same pieces.
+    const later = createSession({ userId: 4, title: 'movie:1', file: mkv, ffmpeg: tools!.ffmpeg, probe: p, decision: d, encoder: 'libx264', startAt: 17, starts });
+    for (const n of [3, 4, 5]) await check(later, n);
   }, 120_000);
 
   // Each piece must start exactly where the playlist says, or the player skips and stalls

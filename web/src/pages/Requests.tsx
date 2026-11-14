@@ -27,14 +27,7 @@ const STATUS: Record<MediaRequest['status'], { label: string; cls: string }> = {
 };
 
 /** Admins: how many requests are waiting (the sidebar badge). */
-export function usePendingRequests(enabled: boolean) {
-  return useQuery({
-    queryKey: ['requests', 'count'],
-    queryFn: () => api.get<{ pending: number }>('/api/requests/count'),
-    enabled,
-    refetchInterval: 30_000,
-  });
-}
+export { usePendingRequests } from '../pendingRequests';
 
 function seasonText(r: MediaRequest) {
   if (r.type === 'movie' || !r.seasons) return null;

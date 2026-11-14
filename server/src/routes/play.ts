@@ -6,10 +6,10 @@ import { continueWatching, homeFor, playableEpisodes, progressOf } from '../core
 import { isInside } from '../core/importer.js';
 import { db, getMedia, now, type EpisodeRow, type MediaRow } from '../db.js';
 import { getSettings } from '../settings.js';
-import { decidePlayback, QUALITIES, type ClientCaps, type PlayChoice, type Quality } from '../playback/decide.js';
+import { decidePlayback, QUALITIES, segmentStarts, type ClientCaps, type PlayChoice, type Quality } from '../playback/decide.js';
 import { ffmpegInfo, requireFfmpeg } from '../playback/ffmpeg.js';
-import { dumpFonts, extractSubtitle, probeFile } from '../playback/probe.js';
-import { createSession, endSession, getSession, playlistPath, waitForSegment } from '../playback/sessions.js';
+import { dumpFonts, extractSubtitle, keyframesWithin, probeFile } from '../playback/probe.js';
+import { copyFailedFor, createSession, endSession, getSession, playlistPath, waitForSegment } from '../playback/sessions.js';
 import { queueMediaWork, workPending } from '../playback/jobs.js';
 import { getSegments } from '../playback/segments.js';
 import { trickplayManifest, trickplaySheet } from '../playback/trickplay.js';
@@ -162,7 +162,14 @@ export async function playRoutes(app: FastifyInstance) {
       const track = (v: unknown, list: { order: number }[]) => (typeof v === 'number' && list.some((t) => t.order === v) ? v : null);
       const choice: PlayChoice = { audio: track(req.body?.audio, probe.audio), subtitle: track(req.body?.subtitle, probe.subtitles), quality };
       const remote = !isLocalAddress(req.ip);
-      const decision = decidePlayback(probe, path.extname(p.file), parseCaps(req.body?.caps), choice, remote, getSettings().remoteMaxBitrateMbps * 1_000_000);
+      let decision = decidePlayback(probe, path.extname(p.file), parseCaps(req.body?.caps), choice, remote, getSettings().remoteMaxBitrateMbps * 1_000_000);
+      // Copying the video needs its keyframes (read once per file); if they can't be read, convert instead.
+      let starts: number[] | undefined;
+      if (decision.copyVideo) {
+        const keys = copyFailedFor(p.file) ? [] : await keyframesWithin(p.file, 3000);
+        if (keys?.length) starts = segmentStarts(probe.duration, keys);
+        else decision = { ...decision, copyVideo: false, reason: decision.reason.replace(/: repackaged.*$/, '') };
+      }
       if (decision.mode === 'direct') return { mode: 'direct', url: `/api/play/direct/${p.kind}/${p.id}`, reason: decision.reason };
       const info = await ffmpegInfo();
       const startAt = Math.min(Math.max(0, Number(req.body?.startAt) || 0), Math.max(0, probe.duration - 1));
@@ -175,13 +182,15 @@ export async function playRoutes(app: FastifyInstance) {
         decision,
         encoder: info.encoder,
         startAt,
+        starts,
       });
       return {
         mode: 'hls',
         url: `/api/play/hls/${s.id}/main.m3u8`,
         sessionId: s.id,
         reason: decision.reason,
-        encoder: info.encoder,
+        encoder: decision.copyVideo ? 'copy' : info.encoder,
+        copy: !!decision.copyVideo,
         height: decision.height,
         bitrate: decision.videoBitrate,
       };

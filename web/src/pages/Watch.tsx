@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import Hls from 'hls.js';
-import JASSUB from 'jassub';
+// The light build: audio and subtitle tracks are handled by the server, so the rest of hls.js isn't needed.
+import Hls from 'hls.js/light';
+import type JASSUB from 'jassub';
 import { api } from '../api';
 import { useAuth } from '../components/AuthGate';
 import { detectCaps } from '../player/caps';
@@ -350,6 +351,10 @@ function Player({ info }: { info: PlayInfo }) {
             maxMaxBufferLength: 60,
             maxBufferSize: 60 * 1000 * 1000,
             backBufferLength: 30,
+            // Ask for the next piece while the current one is still being added, so playback starts sooner.
+            startFragPrefetch: true,
+            // Copied (not converted) pieces can leave a few-frame gap at a join; play through it instead of stalling.
+            maxBufferHole: 0.5,
           });
           h.on(Hls.Events.ERROR, (_e, data) => {
             if (!data.fatal) return;
@@ -417,9 +422,13 @@ function Player({ info }: { info: PlayInfo }) {
     if (!track?.text || !video.current) return;
     let cancelled = false;
     (async () => {
-      const fonts = info.hasFonts ? await api.get<string[]>(`${base}/fonts`).catch(() => []) : [];
+      // The subtitle renderer is big, so it's only fetched once styled subtitles are turned on.
+      const [fonts, { default: Jassub }] = await Promise.all([
+        info.hasFonts ? api.get<string[]>(`${base}/fonts`).catch(() => []) : Promise.resolve([] as string[]),
+        import('jassub'),
+      ]);
       if (cancelled) return;
-      subs.current = new JASSUB({
+      subs.current = new Jassub({
         video: video.current!,
         subUrl: `${base}/subtitle/${track.order}`,
         fonts: fonts.map((f) => `${base}/fonts/${encodeURIComponent(f)}`),
@@ -545,6 +554,14 @@ function Player({ info }: { info: PlayInfo }) {
     show(true);
     scheduleHide();
   };
+  // Leaving the page: a pending hide or seek-bar drag mustn't fire afterwards (a drag would start a new stream).
+  useEffect(
+    () => () => {
+      window.clearTimeout(hideTimer.current);
+      window.clearTimeout(scrubTimer.current);
+    },
+    [],
+  );
   // Mouse moves anywhere on the page (fullscreen included) show the controls. Listened for on the document,
   // so nothing in between can swallow them. A real move reports how far the mouse went (movementX/Y);
   // Chrome's phantom "moves" (when the cursor hides or the layout changes) report none. Only when a browser

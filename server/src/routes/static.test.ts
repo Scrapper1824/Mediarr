@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -37,5 +38,20 @@ describe('serving the web app', () => {
     const res = await app.inject({ method: 'GET', url: '/assets/index-abc123.js' });
     expect(res.statusCode).toBe(200);
     expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('sends the compressed copy made at build time to browsers that accept it', async () => {
+    const js = 'console.log("hello from mediarr");'.repeat(200);
+    fs.writeFileSync(path.join(web, 'assets', 'big-def456.js'), js);
+    fs.writeFileSync(path.join(web, 'assets', 'big-def456.js.br'), zlib.brotliCompressSync(js));
+    const br = await app.inject({ method: 'GET', url: '/assets/big-def456.js', headers: { 'accept-encoding': 'gzip, deflate, br' } });
+    expect(br.statusCode).toBe(200);
+    expect(br.headers['content-encoding']).toBe('br');
+    expect(br.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(zlib.brotliDecompressSync(br.rawPayload).toString()).toBe(js);
+    // A browser that doesn't accept it gets the plain file.
+    const plain = await app.inject({ method: 'GET', url: '/assets/big-def456.js', headers: { 'accept-encoding': 'identity' } });
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    expect(plain.body).toBe(js);
   });
 });

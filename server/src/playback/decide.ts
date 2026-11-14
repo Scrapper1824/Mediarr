@@ -39,6 +39,11 @@ export interface Decision {
   height: number | null;
   /** Video bitrate in bits/s for transcodes. */
   videoBitrate: number;
+  /**
+   * The video is H.264 the browser can play, only its container (or audio) isn't: it's copied into the
+   * stream pieces as it is (no conversion, original picture, almost no CPU) and only the audio is converted.
+   */
+  copyVideo?: boolean;
 }
 
 const MBPS = 1_000_000;
@@ -101,17 +106,29 @@ export function decidePlayback(
   const transcode = (reason: string): Decision => ({ mode: 'transcode', reason, audio, burnSubtitle, height, videoBitrate });
 
   if (!probe.video) return transcode('No video track found');
+  const videoOk = !!VIDEO_OK[probe.video.codec]?.(caps, probe.video.bitDepth);
+  // H.264 (8-bit) the browser plays can go into the stream as it is when nothing else needs the picture
+  // changed: no picture subtitles to draw in, no smaller size chosen or needed for the connection.
+  const canCopy =
+    videoOk &&
+    probe.video.codec === 'h264' &&
+    burnSubtitle === null &&
+    (choice.quality === 'auto' || choice.quality === 'original') &&
+    !(capped && probe.bitrate > remoteMaxBitrate);
+  const convert = (reason: string): Decision =>
+    canCopy ? { mode: 'transcode', reason: `${reason}: repackaged for the browser (the picture isn’t converted)`, audio, burnSubtitle: null, height: null, videoBitrate, copyVideo: true } : transcode(reason);
+
   const container = ext.toLowerCase();
   const containerOk = ((container === '.mp4' || container === '.m4v') && caps.mp4) || (container === '.webm' && caps.webm);
-  if (!containerOk) return transcode(`The browser can’t play ${container.replace('.', '').toUpperCase() || 'this'} files directly`);
-  if (!VIDEO_OK[probe.video.codec]?.(caps, probe.video.bitDepth)) {
+  if (!videoOk) {
     return transcode(`The browser can’t play ${probe.video.codec.toUpperCase()}${probe.video.bitDepth > 8 ? ` ${probe.video.bitDepth}-bit` : ''} video`);
   }
+  if (!containerOk) return convert(`The browser can’t play ${container.replace('.', '').toUpperCase() || 'this'} files directly`);
   if (audio !== null) {
     const track = probe.audio.find((a) => a.order === audio)!;
-    if (audio !== defaultAudio(probe)) return transcode('Switching audio tracks needs a conversion');
+    if (audio !== defaultAudio(probe)) return convert('Switching audio tracks needs a conversion');
     const cap = AUDIO_OK[track.codec];
-    if (!cap || !caps[cap]) return transcode(`The browser can’t play ${track.codec.toUpperCase()} audio`);
+    if (!cap || !caps[cap]) return convert(`The browser can’t play ${track.codec.toUpperCase()} audio`);
   }
   if (burnSubtitle !== null) return transcode('Picture-based subtitles are drawn into the video');
   if (choice.quality !== 'auto' && choice.quality !== 'original') return transcode(`${choice.quality}p chosen`);
@@ -127,16 +144,65 @@ export function segmentCount(duration: number): number {
   return Math.max(1, Math.ceil(duration / SEGMENT_SECONDS - 1e-6));
 }
 
+/**
+ * Where each piece starts (seconds). Converted video gets even 4 s pieces (keyframes are forced there).
+ * Copied video can only be cut at its own keyframes: each piece runs to the first keyframe at least
+ * 4 s after its start.
+ */
+export function segmentStarts(duration: number, keys?: number[] | null): number[] {
+  if (!keys?.length) return Array.from({ length: segmentCount(duration) }, (_, i) => i * SEGMENT_SECONDS);
+  const starts = [0];
+  for (const k of keys) if (k < duration - 0.5 && k - starts[starts.length - 1] >= SEGMENT_SECONDS - 0.05) starts.push(k);
+  return starts;
+}
+
 /** A complete VOD playlist written up front, so the player knows the whole timeline before anything is encoded. */
-export function hlsPlaylist(duration: number): string {
-  const n = segmentCount(duration);
-  const lines = ['#EXTM3U', '#EXT-X-VERSION:3', `#EXT-X-TARGETDURATION:${SEGMENT_SECONDS}`, '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-PLAYLIST-TYPE:VOD'];
-  for (let i = 0; i < n; i++) {
-    const len = Math.min(SEGMENT_SECONDS, duration - i * SEGMENT_SECONDS);
-    lines.push(`#EXTINF:${Math.max(0.1, len).toFixed(3)},`, `seg${i}.ts`);
-  }
+export function hlsPlaylist(duration: number, starts: number[] = segmentStarts(duration)): string {
+  const lens = starts.map((t, i) => Math.max(0.1, (starts[i + 1] ?? duration) - t));
+  const target = Math.max(SEGMENT_SECONDS, Math.ceil(Math.max(...lens)));
+  const lines = ['#EXTM3U', '#EXT-X-VERSION:3', `#EXT-X-TARGETDURATION:${target}`, '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-PLAYLIST-TYPE:VOD'];
+  lens.forEach((len, i) => lines.push(`#EXTINF:${len.toFixed(3)},`, `seg${i}.ts`));
   lines.push('#EXT-X-ENDLIST');
   return lines.join('\n') + '\n';
+}
+
+/** The file FFmpeg adds each finished piece's name to, when copying (pieces are written in place). */
+export const COPY_LIST = 'done.txt';
+
+/**
+ * FFmpeg arguments that copy the video (cut at the planned keyframes) and convert only the audio,
+ * writing seg<N>.ts from piece `startSegment` on. Timestamps stay the file's own, so every piece sits
+ * exactly where the playlist says.
+ */
+export function copyArgs(file: string, probe: MediaProbe, d: Decision, dir: string, starts: number[], startSegment: number): string[] {
+  const start = starts[startSegment];
+  const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y'];
+  // Just past the keyframe: FFmpeg copies from the keyframe at or before this time.
+  if (start > 0) args.push('-ss', (start + 0.01).toFixed(3));
+  args.push('-copyts', '-i', file, '-map', `0:${probe.video!.index}`);
+  if (d.audio !== null) args.push('-map', `0:a:${d.audio}`);
+  args.push('-c:v', 'copy');
+  if (d.audio !== null) args.push('-c:a', 'aac', '-ac', '2', '-b:a', '192k');
+  // Cut points, counted from where this run starts.
+  const cuts = starts.slice(startSegment + 1).map((t) => (t - start).toFixed(3));
+  args.push(
+    '-sn', '-dn',
+    '-map_metadata', '-1',
+    '-map_chapters', '-1',
+    '-max_muxing_queue_size', '4096',
+    '-avoid_negative_ts', 'disabled',
+    '-f', 'segment',
+    '-segment_format', 'mpegts',
+    ...(cuts.length ? ['-segment_times', cuts.join(',')] : []),
+    '-segment_start_number', String(startSegment),
+    '-segment_list', `${dir}/${COPY_LIST}`,
+    '-segment_list_type', 'flat',
+    '-reset_timestamps', '0',
+    '-muxdelay', '0',
+    '-muxpreload', '0',
+    `${dir}/seg%d.ts`,
+  );
+  return args;
 }
 
 const encoderArgs = (encoder: Encoder): string[] => {

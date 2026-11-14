@@ -43,6 +43,19 @@ async function eventually(check: () => boolean, ms = 4000) {
   return check();
 }
 
+/** Stand-in for copying: writes each piece in place (half done for a moment), then lists it in done.txt. */
+const FAKE_COPY = `
+const fs = require('fs'), path = require('path');
+const [dir, start, total] = process.argv.slice(1);
+let n = Number(start);
+const t = setInterval(() => {
+  if (n >= Number(total)) return;
+  const f = path.join(dir, 'seg' + n + '.ts');
+  fs.writeFileSync(f, 'half');
+  setTimeout(() => { fs.appendFileSync(path.join(dir, 'done.txt'), 'seg' + n + '.ts\\n'); n++; }, 10);
+}, 25);
+`;
+
 const session = (userId: number, startAt = 0) =>
   createSession({ userId, title: 'episode:1', file: 'C:\\lib\\ep.mkv', ffmpeg: 'ffmpeg', probe, decision, encoder: 'libx264', startAt });
 
@@ -122,6 +135,51 @@ describe('streaming sessions', { timeout: 20_000 }, () => {
     gone = true; // the player gave up on 100
     await expect(stale).rejects.toThrow(/stopped waiting/);
     expect(launches).toEqual([0, 100, 300]); // 100 never came back to undo the jump to 300
+  });
+
+  it('copies: waits for FFmpeg to list a piece as done, follows the keyframe plan, and isn’t held back by the limit', async () => {
+    const used: string[][] = [];
+    useLauncher((_file, args, s, segment) => {
+      used.push(args);
+      launches.push(segment);
+      return spawn(process.execPath, ['-e', FAKE_COPY, s.dir, String(segment), String(s.starts.length)], { stdio: ['ignore', 'pipe', 'pipe'] });
+    });
+    // The limit is filled by two conversions…
+    session(1);
+    session(2);
+    const h264 = { ...probe, video: { ...probe.video!, codec: 'h264', pixFmt: 'yuv420p', bitDepth: 8 } };
+    const copy = { ...decision, copyVideo: true };
+    const starts = [0, 5.2, 10.4, 15.6, 20.8];
+    // …and a copy still starts, at the piece holding the resume point (12 s is inside 10.4–15.6).
+    const s = createSession({ userId: 3, title: 'episode:3', file: 'C:\\lib\\ep.mkv', ffmpeg: 'ffmpeg', probe: { ...h264, duration: 25 }, decision: copy, encoder: 'libx264', startAt: 12, starts });
+    expect(launches.at(-1)).toBe(2);
+    expect(used.at(-1)).toContain('copy');
+    expect(fs.readFileSync(path.join(s.dir, 'main.m3u8'), 'utf8')).toContain('#EXTINF:5.200,');
+    const seg = await waitForSegment(s, 3);
+    // Only served once listed, never while half written.
+    expect(fs.readFileSync(path.join(s.dir, 'done.txt'), 'utf8')).toContain('seg3.ts');
+    expect(seg).toBe(path.join(s.dir, 'seg3.ts'));
+    await expect(waitForSegment(s, 5)).rejects.toThrow(/No such segment/);
+  });
+
+  it('copies: going back re-makes the pieces, and none is served while it is being rewritten', async () => {
+    useLauncher((_file, _args, s, segment) => {
+      launches.push(segment);
+      return spawn(process.execPath, ['-e', FAKE_COPY, s.dir, String(segment), String(s.starts.length)], { stdio: ['ignore', 'pipe', 'pipe'] });
+    });
+    const h264 = { ...probe, duration: 40, video: { ...probe.video!, codec: 'h264', pixFmt: 'yuv420p', bitDepth: 8 } };
+    const starts = [0, 5, 10, 15, 20, 25, 30, 35];
+    const s = createSession({ userId: 1, title: 'movie:1', file: 'C:\lib\m.mkv', ffmpeg: 'ffmpeg', probe: h264, decision: { ...decision, copyVideo: true }, encoder: 'libx264', startAt: 0, starts });
+    await waitForSegment(s, 4);
+    // Piece 0 was cleared away (it was far behind); asking for it again starts over there…
+    fs.rmSync(path.join(s.dir, 'seg0.ts'));
+    const again = waitForSegment(s, 0);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(launches).toEqual([0, 0]);
+    // …and the later pieces, about to be rewritten, wait for the new run instead of being served half done.
+    expect(s.done.has(3)).toBe(false);
+    await again;
+    expect(await waitForSegment(s, 3)).toBe(path.join(s.dir, 'seg3.ts'));
   });
 
   it('starts at the resume point', () => {

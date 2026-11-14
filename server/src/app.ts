@@ -71,6 +71,8 @@ export async function buildApp(opts: {
     await app.register(fastifyStatic, {
       root: webDist,
       cacheControl: false,
+      // Sends the .br/.gz copies made at build time to browsers that accept them (about a third of the size).
+      preCompressed: true,
       // The page is never kept by a browser or a proxy (Cloudflare), so an update takes effect on the next
       // load; its scripts/styles/fonts have the build's hash in their names, so they can be kept for good.
       setHeaders: (reply, filePath) => {
