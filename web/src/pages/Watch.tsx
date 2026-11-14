@@ -6,10 +6,12 @@ import Hls from 'hls.js/light';
 import type JASSUB from 'jassub';
 import { api } from '../api';
 import InvitePanel from '../components/InvitePanel';
+import InvitePopup from '../components/InvitePopup';
 import { useAuth } from '../components/AuthGate';
 import { detectCaps } from '../player/caps';
 import { correction, expectedPosition, isEcho } from '../party/sync';
 import { bufferedAhead, waitingLabel } from '../party/protocol';
+import { enoughBuffered, readyAhead, recordStall } from '../party/readiness';
 import type { PartyBinding } from '../party/useParty';
 
 interface Track {
@@ -275,6 +277,8 @@ export default function Watch() {
 
 /** A paused party video further than this (s) from the party's position is moved to it. */
 const PARTY_PAUSED_TOLERANCE = 0.15;
+/** How long a converted (HLS) stream takes to start playing, roughly (s): a late joiner aims this far ahead. */
+const HLS_STARTUP_S = 2;
 
 /** Where the party is right now (s), kept inside the video. */
 function partyPosition(party: PartyBinding, duration: number): number {
@@ -367,16 +371,21 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
   const bufferingSent = useRef(false);
   /** Tell the party once this stream can play (after each stream start and after reporting a stall). */
   const needReady = useRef(false);
+  /** When we recently held the party up (for a bigger buffer before saying ready again after repeated stalls). */
+  const stalls = useRef<number[]>([]);
   const [partyMenu, setPartyMenu] = useState<null | 'members' | 'more'>(null);
   // Invite (accounts only): from a normal player the first click starts a party and moves into it.
   const canInvite = !!user && !party?.guest;
   const location = useLocation();
   const [inviteOpen, setInviteOpen] = useState(() => !!party && !party.guest && new URLSearchParams(location.search).has('invite'));
+  /** The party was started from a playing video (?play=1): send play once this stream is first ready. */
+  const playOnReady = useRef(!!party && !party.guest && new URLSearchParams(location.search).has('play'));
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   useEffect(() => {
-    // The ?invite=1 that brought us here is used up.
-    if (new URLSearchParams(window.location.search).has('invite')) window.history.replaceState(window.history.state, '', window.location.pathname);
+    // The ?invite=1 (and ?play=1) that brought us here is used up.
+    const q = new URLSearchParams(window.location.search);
+    if (q.has('invite') || q.has('play')) window.history.replaceState(window.history.state, '', window.location.pathname);
   }, []);
   const onInvite = async () => {
     setPartyMenu(null);
@@ -385,8 +394,10 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
     setInviteBusy(true);
     setInviteError(null);
     try {
+      const wasPlaying = !!video.current && !video.current.paused;
       const r = await api.post<{ id: string }>('/api/party', { kind: info.kind, id: info.id, position: currentTime() });
-      navigate(`/party/${encodeURIComponent(r.id)}?invite=1`, { replace: true });
+      // The party starts paused; ?play=1 has the party player start it once its stream is ready.
+      navigate(`/party/${encodeURIComponent(r.id)}?invite=1${wasPlaying ? '&play=1' : ''}`, { replace: true });
     } catch (e) {
       setInviteError((e as Error).message);
       setInviteBusy(false);
@@ -478,16 +489,24 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
   const applyPartyRef = useRef(applyParty);
   applyPartyRef.current = applyParty;
 
-  /** Sends `buffering: false` once the video has enough to play (≥ 2 s ahead, or the browser says enough). */
+  /**
+   * Sends `buffering: false` once the video can play and has enough buffered ahead: 2 s, more after repeated
+   * stalls (readyAhead), or the rest of the file. The browser saying it can play through isn't enough on its own.
+   */
   const checkReady = () => {
     const p = partyRef.current;
     const v = video.current;
     if (!p || !v || !needReady.current || !streamReady.current || v.seeking || v.readyState < 3) return;
     const ahead = bufferedAhead(v.buffered, v.currentTime);
-    if (ahead < 2 && v.readyState < 4 && v.currentTime + ahead < duration - 0.5) return;
+    if (!enoughBuffered(ahead, v.currentTime, duration, readyAhead(stalls.current, Date.now()))) return;
     if (!p.send({ t: 'buffering', on: false })) return; // not connected: tried again on the next check
     needReady.current = false;
     bufferingSent.current = false;
+    // Started a party while the video was playing: play once this new stream is ready (no position jump).
+    if (playOnReady.current) {
+      playOnReady.current = false;
+      if (!p.state?.playing) p.send({ t: 'play' });
+    }
   };
   const checkReadyRef = useRef(checkReady);
   checkReadyRef.current = checkReady;
@@ -508,6 +527,7 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
       if (p.send({ t: 'buffering', on: true })) {
         bufferingSent.current = true;
         needReady.current = true;
+        stalls.current = recordStall(stalls.current, Date.now());
       }
     }, wait);
   };
@@ -595,7 +615,13 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
   // Start (or restart, after changing audio/quality) the stream at `startAt`.
   useEffect(() => {
     if (start === null) return;
-    const startAt = start.at;
+    const p0 = partyRef.current;
+    // In a party, where the party is at the moment we ask (not when the player opened or the restart was
+    // chosen), plus the time a converted stream takes to start while the party plays. Direct play lines up
+    // again once the file opens (loadedmetadata), so aiming ahead does it no harm.
+    const startAt = p0?.state
+      ? Math.min(partyPosition(p0, duration) + (p0.state.playing ? HLS_STARTUP_S : 0), Math.max(0, duration - 0.5))
+      : start.at;
     const v = video.current!;
     let cancelled = false;
     setError(null);
@@ -769,7 +795,8 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
     if (party) {
       const s = party.state;
       // The party plays but the browser wouldn't start this video without a click: this is that click.
-      if (s?.playing && v.paused && streamReady.current && expectedPosition(s, party.clock.now()) < duration - 0.5) {
+      // Only when it really was refused (not while waiting for a scheduled start, which a click must not jump).
+      if (playBlocked.current && s?.playing && v.paused && streamReady.current && expectedPosition(s, party.clock.now()) < duration - 0.5) {
         playBlocked.current = false;
         applyParty();
         if (v.paused) applyPlay();
@@ -1221,6 +1248,8 @@ export function Player({ info, party }: { info: PlayInfo; party?: PartyBinding }
       )}
 
       {debug && <DiagReadout diag={diag} controls={controls} playing={playing} shell={shell} />}
+      {/* Invites reach you while you watch too (accounts only; not in a party). Inside the player, so it shows in fullscreen. */}
+      {!party && !!user && <InvitePopup />}
       <div className="watch-top" {...onControls}>
         {!party?.guest && (
           <button className="watch-icon" aria-label="Back" onClick={() => navigate(-1)}>

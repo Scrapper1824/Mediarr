@@ -6,7 +6,10 @@ import { inviteTitle, invitesToPop, useNotifications, type NotificationItem } fr
 
 const SHOW_MS = 30_000;
 
-/** A card at the bottom-right when someone invites you; gone after 30 s. Mounted in the app shell only. */
+/**
+ * A card when someone invites you; gone after 30 s. Mounted in the app shell and in the normal (non-party)
+ * player, inside its fullscreen element so it shows in fullscreen too.
+ */
 export default function InvitePopup() {
   const qc = useQueryClient();
   const navigate = useNavigate();

@@ -1492,3 +1492,5 @@ a.home-card-title:hover { text-decoration: underline; text-underline-offset: 3px
 .invite-popup-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 760px) { .invite-popup { right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) { .invite-popup { animation: none; } }
+/* In the player: top-right under the top bar, clear of the controls and skip buttons, above everything in it. */
+.watch .invite-popup { top: 72px; bottom: auto; right: 18px; color: var(--text, #fff); user-select: auto; cursor: auto; }
