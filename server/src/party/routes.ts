@@ -119,12 +119,15 @@ export async function partyRoutes(app: FastifyInstance) {
     if (typeof code !== 'string' || code.length > 200) return reply.code(400).send({ error: 'Bad request' });
     // Counted per address only (plus the shared per-IP login bucket), so wrong codes from one place can't
     // lock everyone else out of the party. Party ids are 32 hex characters; anything else shares one bucket.
-    const limitKey = `party:${/^[0-9a-f]{32}$/.test(req.params.id) ? req.params.id : '?'}:${req.ip}`;
+    const wellFormed = /^[0-9a-f]{32}$/.test(req.params.id);
+    const limitKey = `party:${wellFormed ? req.params.id : '?'}:${req.ip}`;
     const wait = lockedFor(req.ip, limitKey);
     if (wait > 0) return reply.code(429).send({ error: `Too many tries. Try again in ${Math.ceil(wait / 60)} min.` });
     const party = getParty(req.params.id);
     if (!party) {
-      recordFailure(req.ip, limitKey);
+      // Old links to ended parties are common and guess nothing (ids are random), so they don't count
+      // towards the sign-in lockout. Malformed ids still do.
+      if (!wellFormed) recordFailure(req.ip, limitKey);
       return reply.code(404).send({ error: 'This watch party has ended.' });
     }
     const r = resolve(party.title);

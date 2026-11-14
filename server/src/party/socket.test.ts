@@ -379,6 +379,23 @@ describe('party socket: sync', () => {
     b.ws.close();
     expect((await a.next((m) => isState(m) && m.state.playing)).waitingFor).toEqual([]);
   });
+  it('a buffering member whose socket is replaced doesn’t leave the party paused with nobody loading', async () => {
+    const { alice, bob } = await users();
+    const party = await startParty(alice.cookie, addShow('Bluey').eps[0]);
+    const a = await connectAs(party, alice.cookie);
+    const b = await connectAs(party, bob.cookie);
+    a.send({ t: 'play' });
+    await b.next((m) => isState(m) && m.state.playing);
+    await a.next((m) => isState(m) && m.state.playing);
+    b.send({ t: 'buffering', on: true });
+    expect((await a.next((m) => isState(m) && m.waitingFor.length > 0)).state.playing).toBe(false);
+    // Bob reloads: the new socket replaces the old one, which clears his buffering.
+    const b2 = await connectAs(party, bob.cookie);
+    expect((await b.next((m) => m.t === 'replaced')).t).toBe('replaced');
+    const go = await a.next((m) => isState(m) && m.state.playing);
+    expect(go.waitingFor).toEqual([]);
+    expect((await b2.next(isState)).state.playing).toBe(true);
+  });
 });
 
 describe('party socket: next episode', () => {

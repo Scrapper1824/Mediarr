@@ -207,6 +207,30 @@ describe('watch parties', () => {
     expect((await join('198.51.100.7', code)).statusCode).toBe(200);
   });
 
+  it('links to ended or unknown parties don’t count against the sign-in lockout; wrong codes for a live one do', async () => {
+    const { host } = await users();
+    const show = addShow('Bluey');
+    const ended = await startParty(host.cookie, show.eps[0]);
+    const { code: endedCode } = await joinAsGuest(host.cookie, ended.id);
+    expect((await call(host.cookie, 'POST', `/api/party/${ended.id}/end`)).statusCode).toBe(200);
+    const ip = '203.0.113.9';
+    const join = (id: string, c: string) =>
+      app.inject({ method: 'POST', url: `/api/party/${id}/guest-join`, headers: CSRF, payload: { code: c }, remoteAddress: ip });
+    // Well past both the per-party (5) and the per-address login (10) limits.
+    for (let i = 0; i < 12; i++) {
+      expect((await join(ended.id, endedCode)).statusCode).toBe(404);
+      expect((await join('0123456789abcdef0123456789abcdef', 'x')).statusCode).toBe(404);
+    }
+    // Signing in from that address still works.
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', headers: CSRF, payload: { username: 'host', password: `${PASSWORD} x` }, remoteAddress: ip });
+    expect(login.statusCode, login.body).toBe(200);
+    // A live party: wrong codes still count and lock this address out of it.
+    const live = await startParty(host.cookie, show.eps[1]);
+    const code = (await call(host.cookie, 'POST', `/api/party/${live.id}/guest-link`)).json().url.split('#')[1];
+    for (let i = 0; i < 5; i++) expect((await join(live.id, `wrong${i}`)).statusCode).toBe(403);
+    expect((await join(live.id, code)).statusCode).toBe(429);
+  });
+
   it('takes at most 10 guests', async () => {
     const { host } = await users();
     const show = addShow('Bluey');

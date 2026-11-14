@@ -288,7 +288,11 @@ export async function partySocketRoutes(app: FastifyInstance) {
       }
       let room = rooms.get(p.id);
       if (!room) rooms.set(p.id, (room = { conns: new Map(), lastNextAt: 0 }));
-      connect(p, principal, Date.now());
+      const now = Date.now();
+      connect(p, principal, now);
+      // A replaced socket's buffering was cleared without a resume check (and a connect can settle waiting too):
+      // resume now if nobody is left to wait for, so the party never sits paused with nobody loading.
+      tickBuffering(p, now, leadFor(p.id));
       const c: Conn = { sock, partyId: p.id, key, rtt: null, alive: true, done: false, windowStart: 0, commands: 0, others: 0 };
       room.conns.set(key, c);
       sock.on('message', (data, isBinary) => onMessage(c, data, isBinary));
